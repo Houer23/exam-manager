@@ -1,0 +1,69 @@
+# 成绩单分析配置（全局）
+# 修改本文件后重新运行程序即可生效。
+
+# 统计口径
+analysis:
+  # 及格线 / 优秀线按"得分率"计算：及格 = 分数/满分 >= 0.6
+  pass_ratio: 0.6
+  excellent_ratio: 0.85
+  # 缺考/空值处理：exclude = 排除；include_zero = 按 0 分计入
+  absent_strategy: exclude
+  # 分数段上界（按得分率），生成 90+ / 80-89 / 70-79 / 60-69 / <60
+  score_bands: [0.9, 0.8, 0.7, 0.6]
+
+# 常见科目词表（用于文件名识别）
+subjects:
+  - 语文
+  - 数学
+  - 外语
+  - 物理
+  - 化学
+  - 生物
+  - 政治
+  - 历史
+  - 地理
+  - 技术
+
+# 科目别名：识别到别名时映射为规范科目名
+# 外语（英语/俄语/日语三选一）与技术（信息技术+通用技术）为特殊科目，
+# 当前不做深入分析，仅保留识别词表。
+subject_aliases:
+  外语: [英语, 俄语, 日语]
+  技术: [信息技术, 通用技术]
+
+# 科目默认值：full_score 缺省时用 default_full_score；
+# objective_full_score / subjective_full_score 缺省表示该科目默认无客观/主观满分
+subject_defaults:
+  语文: {full_score: 150}
+  数学: {full_score: 150}
+  外语: {full_score: 150}
+  地理: {full_score: 100, objective_full_score: 50, subjective_full_score: 50}
+
+default_full_score: 100
+default_grade: 高一
+# 原始表无"学校"列时，规范表用此默认学校填充
+default_school: 遂昌中学
+
+# 规范表存储与复用
+parsed_dir: data/parsed
+parsed_format: csv
+# run/merge 默认合并的学期（当前学期），命令行 --semester 可覆盖
+current_semester: 高一第二学期
+# 当前场次：留空 = 自动取筛选范围内 date 最大的考试；
+# 显式填写考试名称时优先；命令行 --exam 优先级最高
+current_exam: ""
+
+# 考试条目目录：每场考试一个 yaml 文件（下划线开头的文件会被忽略，如模板）
+# 可按学期建子文件夹，子文件夹名作为该文件夹内条目的默认 semester；
+# 条目内显式声明 semester 时以文件声明为优先。
+exams_dir: config/exams
+
+# 班级配置目录：<学期>.yaml（键为默认学校的班级名，level 限 A/B）
+classes_dir: config/classes
+# 学科配置目录：<学期>_<学科>.yaml（教师代号从 A 起连续大写字母）
+subjects_dir: config/subjects
+
+# 输出配置
+output:
+  dir: data/output
+  excel_name: 成绩分析汇总.xlsx

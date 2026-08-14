@@ -1,0 +1,9 @@
+# Add your project dependencies here, for example:
+# flask==2.2.5
+# requests>=2.28
+pandas
+numpy
+openpyxl
+lxml
+pytest
+PyYAML

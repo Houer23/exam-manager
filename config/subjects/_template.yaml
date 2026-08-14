@@ -1,0 +1,13 @@
+# 学科配置模板：复制并改名为 <学期>_<学科>.yaml（如 高一第二学期_地理.yaml）
+# teacher_count: 本学科教师数量，必须与 teacher_names 数量一致
+# teacher_names: 从 A 开始连续大写字母代号 -> 教师名称
+# class_teachers: 默认学校的班级 -> 字母代号；使用时转换为教师名称
+
+subject: 地理
+teacher_count: 2
+teacher_names:
+  A: 张老师
+  B: 李老师
+class_teachers:
+  高一10班: A
+  高一11班: B

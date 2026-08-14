@@ -1,0 +1,304 @@
+"""数据清洗与质量校验。
+
+职责：考号校验、班级归一化、总分边界校验、去重、缺失/缺考处理，
+并生成数据质量问题清单。
+"""
+
+from __future__ import annotations
+
+import re
+
+import pandas as pd
+
+from .config import AnalysisConfig, ExamConfig
+
+
+def extract_grade(class_raw: str) -> str | None:
+    """从班级原始值提取年级（高一/高二/高三），无法提取返回 None。"""
+    match = re.search(r"高[一二三]", class_raw or "")
+    return match.group(0) if match else None
+
+
+def normalize_class_name(
+    class_raw: str, default_grade: str
+) -> tuple[str, str | None]:
+    """班级归一化为 高XDD班，返回 (规范班级, 年级)。
+
+    规则（按顺序尝试）：
+    1. 高一年级4班 / 高一年级16班 -> 高一04班 / 高一16班；
+    2. 高一(10) -> 高一10班；
+    3. 纯数字 3 -> 年级取 default_grade，输出 高一03班。
+
+    全部失败返回 (原始班级, None)。
+    """
+    text = str(class_raw).strip() if class_raw is not None else ""
+    if not text:
+        return "", None
+
+    m = re.fullmatch(r"高([一二三])(?:年级)?(\d+)班?", text)
+    if m:
+        grade = f"高{m.group(1)}"
+        return f"{grade}{int(m.group(2)):02d}班", grade
+
+    m = re.fullmatch(r"高([一二三])[（(](\d+)[)）]班?", text)
+    if m:
+        grade = f"高{m.group(1)}"
+        return f"{grade}{int(m.group(2)):02d}班", grade
+
+    m = re.fullmatch(r"(\d+)", text)
+    if m:
+        grade = extract_grade(default_grade) or default_grade
+        return f"{grade}{int(m.group(1)):02d}班", grade
+
+    return text, extract_grade(text)
+
+
+def validate_student_ids(df: pd.DataFrame) -> None:
+    """校验考号：缺失、非 12 位数字、场次内重复 -> 报错终止。"""
+    ids = df["student_id"].astype(str).str.strip()
+    problems: list[str] = []
+
+    missing = ids.isin(["", "nan", "None"]).sum()
+    if missing:
+        problems.append(f"{missing} 行考号缺失")
+
+    bad_mask = ~ids.str.fullmatch(r"\d{12}")
+    bad = ids[bad_mask]
+    if len(bad):
+        problems.append(f"{len(bad)} 行考号非 12 位数字，如 {bad.head(5).tolist()}")
+
+    dup = ids[ids.duplicated(keep=False)]
+    if len(dup):
+        problems.append(f"{len(dup)} 行考号重复，如 {sorted(set(dup))[:5]}")
+
+    if problems:
+        raise ValueError("考号校验失败：" + "；".join(problems))
+
+
+def validate_total_score(df: pd.DataFrame, full_score: float) -> None:
+    """总分边界校验：0 <= 总分 <= 满分，超界报错终止。"""
+    if full_score is None:
+        return
+    totals = pd.to_numeric(df["total_score"], errors="coerce")
+    bad = df[totals.notna() & ((totals > full_score) | (totals < 0))]
+    if len(bad):
+        ids = bad["student_id"].astype(str).tolist()
+        raise ValueError(
+            f"总分越界（满分 {full_score:g}）：{len(bad)} 行，如 {ids[:5]}"
+        )
+
+
+def collect_quality_issues(
+    score: pd.DataFrame, exam: ExamConfig, config: AnalysisConfig
+) -> pd.DataFrame:
+    """软校验清单：客观/主观超满分、客观+主观≠总分、班级无法归一化。"""
+    rows: list[tuple[str, str, str]] = []
+    totals = pd.to_numeric(score["total_score"], errors="coerce")
+    obj = pd.to_numeric(score["objective_score"], errors="coerce")
+    subj = pd.to_numeric(score["subjective_score"], errors="coerce")
+
+    if exam.objective_full_score:
+        over = score[obj.notna() & (obj > exam.objective_full_score)]
+        for _, r in over.iterrows():
+            rows.append(
+                (
+                    str(r["student_id"]),
+                    "客观分超满分",
+                    f"{r['objective_score']:g} > {exam.objective_full_score:g}",
+                )
+            )
+    if exam.subjective_full_score:
+        over = score[subj.notna() & (subj > exam.subjective_full_score)]
+        for _, r in over.iterrows():
+            rows.append(
+                (
+                    str(r["student_id"]),
+                    "主观分超满分",
+                    f"{r['subjective_score']:g} > {exam.subjective_full_score:g}",
+                )
+            )
+
+    mask = totals.notna() & obj.notna() & subj.notna()
+    diff = (obj + subj - totals).abs()
+    for i in score.index[mask & (diff > 1e-6)]:
+        rows.append(
+            (
+                str(score.loc[i, "student_id"]),
+                "客观+主观≠总分",
+                f"差 {diff.loc[i]:g}",
+            )
+        )
+
+    for _, r in score.iterrows():
+        raw = str(r["class_raw"]).strip()
+        cls = str(r["class_name"]).strip()
+        if raw and cls == raw and extract_grade(raw) is None:
+            rows.append((str(r["student_id"]), "班级无法归一化", raw))
+
+    issues_df = pd.DataFrame(rows, columns=["考号", "问题类型", "说明"])
+    if issues_df.empty:
+        return issues_df.reindex(columns=["考试名称", "考号", "问题类型", "说明"])
+    issues_df["考试名称"] = exam.name
+    return issues_df[["考试名称", "考号", "问题类型", "说明"]]
+
+
+def compute_ranks(score: pd.DataFrame) -> None:
+    """以考号为索引，计算总成绩在所在班级、学校的排位。
+
+    竞争排名：同分同名次（取靠前的较小名次），名次 = 前面真实人数 + 1，
+    可能出现不连续（如 90/90/80 -> 1/1/3）。
+    班次按（学校, 班级）联合分组，不同学校的同名班级不合并。
+    班级、学校缺失或总分为缺考的行排位为空。
+    """
+    score["班次"] = float("nan")
+    score["校次"] = float("nan")
+    has_class = score["class_name"].fillna("").astype(str).str.strip() != ""
+    has_school = score["school"].fillna("").astype(str).str.strip() != ""
+    has_both = has_school & has_class
+    if has_both.any():
+        score.loc[has_both, "班次"] = (
+            score.loc[has_both]
+            .groupby(["school", "class_name"])["total_score"]
+            .rank(method="min", ascending=False)
+        )
+    if has_school.any():
+        score.loc[has_school, "校次"] = (
+            score.loc[has_school]
+            .groupby("school")["total_score"]
+            .rank(method="min", ascending=False)
+        )
+
+
+def add_question_type_scores(
+    score: pd.DataFrame, questions: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """按题型汇总得分与满分。
+
+    每题实际满分 = 该题最高得分；
+    单选满分/多选满分 = 该题型各题满分之和（每题实际总分 × 题数）；
+    score 表新增 单选分/多选分/单选满分/多选满分；
+    questions 表回填每题 full_score。缺考学生的分项得分为空。
+    """
+    q = questions.copy()
+    q["full_score"] = q.groupby("question_id")["score"].transform("max")
+    pivot = (
+        q[q["question_type"].isin(["单选", "多选"])]
+        .groupby(["student_id", "question_type"])["score"]
+        .sum()
+        .unstack(fill_value=0)
+    )
+    score = score.copy()
+    score["单选分"] = score["student_id"].map(
+        pivot.get("单选", pd.Series(dtype=float))
+    )
+    score["多选分"] = score["student_id"].map(
+        pivot.get("多选", pd.Series(dtype=float))
+    )
+    type_full = (
+        q.groupby(["question_id", "question_type"])["full_score"]
+        .first()
+        .groupby("question_type")
+        .sum()
+    )
+    score["单选满分"] = type_full.get("单选", 0.0)
+    score["多选满分"] = type_full.get("多选", 0.0)
+    return score, q
+
+
+def classify_objective_types(questions: pd.DataFrame) -> pd.DataFrame:
+    """区分客观题中的单选题/多选题。
+
+    规则：按各题实际最高得分区分（题号从 1 开始），
+    最高得分较小的为单选题，较大的为多选题；
+    若所有客观题最高得分相同，则该场无多选题（全部为单选题）。
+    """
+    obj = questions[questions["question_type"] == "客观"]
+    if obj.empty:
+        return questions
+    max_by_q = obj.groupby("question_id")["score"].max()
+    distinct = sorted(max_by_q.unique())
+    if len(distinct) < 2:
+        return questions
+    single_max = distinct[0]
+    multi_ids = set(max_by_q[max_by_q > single_max].index)
+    mask = questions["question_type"] == "客观"
+    questions.loc[mask & questions["question_id"].isin(multi_ids), "question_type"] = "多选"
+    questions.loc[mask & ~questions["question_id"].isin(multi_ids), "question_type"] = "单选"
+    return questions
+
+
+def filter_default_school(
+    score: pd.DataFrame,
+    questions: pd.DataFrame,
+    default_school: str | None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """单学校模型：只保留默认学校的学生（成绩表与小题表同步过滤）。"""
+    if not default_school:
+        return score, questions
+    kept = score[score["school"] == default_school]
+    if kept.empty:
+        raise ValueError(f"默认学校 {default_school} 在数据中无记录")
+    ids = set(kept["student_id"])
+    return (
+        kept.reset_index(drop=True),
+        questions[questions["student_id"].isin(ids)].reset_index(drop=True),
+    )
+
+
+def enrich_metadata(
+    score: pd.DataFrame, exam: ExamConfig, config: AnalysisConfig
+) -> pd.DataFrame:
+    """补齐班级学情层次/选科组合/任课教师；未配置的班级留空（归"未配置"组）。"""
+    score = score.copy()
+    level_map: dict[str, str] = {}
+    course_map: dict[str, str] = {}
+    for (semester, class_name), info in config.class_infos.items():
+        if semester == exam.semester:
+            level_map[class_name] = info.level
+            course_map[class_name] = info.course
+    teacher_map: dict[str, str] = {}
+    teacher_map_obj = config.teacher_maps.get((exam.semester, exam.subject))
+    if teacher_map_obj:
+        teacher_map = {
+            class_name: teacher_map_obj.teacher_for(class_name)
+            for class_name in teacher_map_obj.class_teachers
+        }
+    score["class_level"] = score["class_name"].map(level_map).fillna("")
+    score["course"] = score["class_name"].map(course_map).fillna("")
+    score["teacher"] = score["class_name"].map(teacher_map).fillna("")
+    return score
+
+
+def clean_score_table(
+    score: pd.DataFrame, exam: ExamConfig, config: AnalysisConfig
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """清洗一场考试的科目总分表，返回 (清洗后表, 质量问题清单)。
+
+    考号/总分校验失败时抛 ValueError 终止；
+    班级归一化失败与客观/主观异常进入质量清单（不阻断）。
+    """
+    validate_student_ids(score)
+    validate_total_score(score, exam.full_score)
+    default_grade = exam.default_grade or config.default_grade
+    pairs = [
+        normalize_class_name(c, default_grade) for c in score["class_raw"]
+    ]
+    score["class_name"] = [p[0] for p in pairs]
+    score["grade"] = [p[1] for p in pairs]
+    compute_ranks(score)
+    score = enrich_metadata(score, exam, config)
+    issues = collect_quality_issues(score, exam, config)
+    return score, issues
+
+
+def clean_long_table(
+    df: pd.DataFrame, config: AnalysisConfig
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """清洗长表数据，返回 (清洗后数据, 质量问题清单)。
+
+    TODO:
+    1. 分数列转数值，空值按缺考标记；
+    2. 完全重复记录（同学号+科目+场次）保留第一条；
+    3. 生成质量问题清单（缺考号、班级无法归一化、客观/主观分与总分不一致等）。
+    """
+    raise NotImplementedError("清洗逻辑将在后续实现")

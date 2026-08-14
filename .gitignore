@@ -1,0 +1,44 @@
+# 虚拟环境
+.venv/
+
+# Python 缓存与产物
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# 测试与覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 类型检查 / lint 缓存
+.mypy_cache/
+.ruff_cache/
+
+# 数据目录：原始成绩单与生成的分析结果不入库，仅保留目录
+data/input/*
+!data/input/.gitkeep
+data/output/*
+!data/output/.gitkeep
+
+# 规范表缓存
+data/parsed/
+
+# 日志
+*.log
+
+# 编辑器与 IDE
+.vscode/
+.idea/
+*.swp
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 环境变量
+.env
+.env.local
+!.env.example

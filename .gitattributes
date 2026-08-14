@@ -1,0 +1,7 @@
+# 统一行尾为 CRLF（Windows）
+* text eol=crlf
+
+# Excel 等二进制文件不做文本转换
+*.xlsx binary
+*.xls binary
+*.pyc binary
