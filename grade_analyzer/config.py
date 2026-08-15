@@ -18,7 +18,7 @@ _GLOBAL_KEYS = {
     "analysis", "subjects", "subject_aliases", "subject_defaults",
     "default_full_score", "default_grade", "current_semester",
     "current_exam", "default_school", "parsed_dir", "parsed_format",
-    "exams_dir", "classes_dir", "subjects_dir", "roster_dir", "output",
+    "exams_dir", "classes_dir", "subjects_dir", "roster_dir", "charts_dir", "output",
 }
 _ANALYSIS_KEYS = {"pass_ratio", "excellent_ratio", "absent_strategy", "score_bands"}
 _OUTPUT_KEYS = {"dir", "excel_name"}
@@ -131,6 +131,7 @@ class AnalysisConfig:
     classes_dir: str = "config/classes"
     subjects_dir: str = "config/subjects"
     roster_dir: str = "data/roster"
+    charts_dir: str = "config/charts"
     output: OutputConfig = field(default_factory=OutputConfig)
     # 常见科目词表（用于文件名识别）
     subjects: list[str] = field(
@@ -418,6 +419,7 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
         parsed_dir=str(raw.get("parsed_dir", "data/parsed")),
         parsed_format=str(raw.get("parsed_format", "csv")),
         roster_dir=str(raw.get("roster_dir", "data/roster")),
+        charts_dir=str(raw.get("charts_dir", "config/charts")),
         output=OutputConfig(
             dir=str(out_raw.get("dir", "data/output")),
             excel_name=str(out_raw.get("excel_name", "成绩分析汇总.xlsx")),

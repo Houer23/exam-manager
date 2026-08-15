@@ -11,6 +11,9 @@ analysis:
   # 分数段上界（按得分率），生成 90+ / 80-89 / 70-79 / 60-69 / <60
   score_bands: [0.9, 0.8, 0.7, 0.6]
 
+# 统计图配置目录：config/charts/config.yaml（默认值已全部显式列出）
+charts_dir: config/charts
+
 # 常见科目词表（用于文件名识别）
 subjects:
   - 语文

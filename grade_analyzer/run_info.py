@@ -33,6 +33,7 @@ def config_snapshot(config: AnalysisConfig) -> dict:
             "缺考策略": config.absent_strategy,
             "规范表目录": config.parsed_dir,
             "名单目录": config.roster_dir,
+            "图表配置目录": config.charts_dir,
             "输出目录": config.output.dir,
             "科目满分默认": {
                 subject: {

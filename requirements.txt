@@ -7,3 +7,5 @@ openpyxl
 lxml
 pytest
 PyYAML
+matplotlib
+seaborn

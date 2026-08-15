@@ -1,0 +1,65 @@
+# 统计图（组合图）配置模板：复制为 config.yaml 后按需修改
+
+# 输出与启用
+enabled: true
+format: png
+dpi: 150
+figure_width: 14
+row_height: 0.55
+min_figure_height: 6
+
+# 分组与内容
+group_by: [层次, 教师]
+sort_metric: median
+show_violin: true
+show_lines: true
+
+# 坐标轴
+axis:
+  range_mode: auto
+  fixed_min: 10
+  fixed_max: 100
+  custom_min: 25
+  custom_max: 95
+  tick_step: 10
+  y_label: class_name
+
+# 字体
+font:
+  family: [微软雅黑, SimHei, Arial Unicode MS]
+  title_size: 16
+  label_size: 12
+  tick_size: 10
+  annot_size: 10
+  legend_size: 7
+
+# 配色
+colors:
+  palette: seaborn
+  metrics:
+    Q1: {color: tab:blue, marker: s}
+    中位数: {color: tab:orange, marker: o}
+    平均数: {color: tab:green, marker: D}
+    Q3: {color: tab:red, marker: ^}
+
+# 半提琴图
+violin:
+  split: true
+  fill: false
+  inner: quart
+  linewidth: 1.0
+
+# 标注
+annotations:
+  ave_std_x_offset: 1
+  ave_width: 5
+  text_y_offset: 0.58
+  ave_std_format: .2f
+  point_format: .1f
+
+# 组间分隔线
+separator:
+  show: true
+  color: gray
+  style: --
+  linewidth: 0.6

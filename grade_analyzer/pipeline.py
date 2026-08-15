@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from .adapters.registry import auto_detect_format, get_adapter
+from .chart_config import load_charts_config
 from .cleaning import (
     add_question_type_scores,
     clean_score_table,
@@ -15,6 +16,7 @@ from .cleaning import (
 from .consolidate import merge_to_output
 from .config import load_config
 from .detect import detect_subject_from_filename, resolve_exam_name
+from .dist_charts import build_all_charts
 from .io_utils import read_raw_sheet
 from .storage import is_parsed_fresh, write_parsed_tables
 from .report import build_class_summaries, build_exam_statistics, build_report
@@ -117,6 +119,7 @@ def run_pipeline(
     config = load_config(config_path)
     start = time.time()
     events: list[tuple[str, str, str]] = []
+    charts_cfg = load_charts_config(config.charts_dir)
 
     def event(stage: str, msg: str) -> None:
         events.append((time.strftime("%H:%M:%S"), stage, msg))
@@ -149,6 +152,11 @@ def run_pipeline(
         )
         if verify_roster:
             event("名单核对", f"{exam.name}: 已核对")
+        chart_paths = build_all_charts(exam, score, charts_cfg, config.output)
+        for chart_path in chart_paths:
+            print(f"[统计图] {chart_path}")
+        if chart_paths:
+            event("统计图", f"{exam.name}: {len(chart_paths)} 张组合图")
     report_path = build_report(config, long_df, frames)
     event("报告", report_path)
     print(f"[报告] {report_path}")
