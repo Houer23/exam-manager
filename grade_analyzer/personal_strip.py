@@ -104,7 +104,7 @@ def _build_strip_rows(
         data = [
             srow["class_name"],
             srow["name"] if not pd.isna(srow["name"]) else "",
-            exam.short_name or "",
+            exam.effective_short_name,
             srow["班次"],
             srow["校次"],
             srow["total_score"],

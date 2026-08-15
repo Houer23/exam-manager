@@ -17,7 +17,7 @@ import yaml
 _GLOBAL_KEYS = {
     "analysis", "subjects", "subject_aliases", "subject_defaults",
     "default_full_score", "default_grade", "current_semester",
-    "current_exam", "default_school", "parsed_dir", "parsed_format",
+    "current_exam", "default_school", "input_dir", "parsed_dir", "parsed_format",
     "exams_dir", "classes_dir", "subjects_dir", "roster_dir", "charts_dir",
     "results_dir", "results_config_dir", "output",
 }
@@ -45,7 +45,7 @@ class ExamConfig:
     其余字段：
     - name：weekly 从文件名提取；联考需显式填写
     - short_name：考试简称（个人成绩单内使用，必填，check 校验）
-    - folder/file：原始成绩单所在文件夹与文件名（file 必填，folder 缺省 data/input）
+    - folder/file：原始成绩单所在文件夹与文件名（file 必填，folder 留空 = 全局 input_dir）
     - semester：学期全称（如 高一第一学期），规范表按此分目录
     - date：考试日期（YYYY-MM-DD，缺省=程序运行当日），决定趋势顺序
     - subject：留空从文件名推测
@@ -68,7 +68,7 @@ class ExamConfig:
     default_grade: str | None = None
     sheet: str | None = None
     filter_by_selection: bool = True  # 名单核对是否按七选三过滤
-    short_name: str | None = None  # 考试简称（必填）
+    short_name: str | None = None  # 考试简称（留空 = 使用考试全称）
     question_display: str = "split"  # 个人成绩单小题呈现：split=分列 / merged=合并
     show_big_questions: bool = False  # 是否显示主观大题汇总分列
 
@@ -80,9 +80,14 @@ class ExamConfig:
 
     @property
     def full_path(self) -> str:
-        """原始成绩单完整路径（folder/file，folder 缺省 data/input）。"""
+        """原始成绩单完整路径（folder/file，folder 留空兜底 data/input）。"""
         folder = self.folder or "data/input"
         return str(Path(folder) / (self.file or ""))
+
+    @property
+    def effective_short_name(self) -> str:
+        """考试简称：short_name 为空时使用考试全称。"""
+        return self.short_name or self.name or ""
 
 
 @dataclass
@@ -131,6 +136,7 @@ class OutputConfig:
 class AnalysisConfig:
     """完整分析配置。"""
 
+    input_dir: str = "data/input"  # 默认成绩单输入目录（考试配置 folder 留空时使用）
     exams_dir: str = "config/exams"
     parsed_dir: str = "data/parsed"
     parsed_format: str = "csv"
@@ -227,7 +233,12 @@ def _to_positive_float(
     return num
 
 
-def _load_exam_file(path: Path, folder_semester: str | None) -> ExamConfig:
+def _load_exam_file(
+    path: Path,
+    folder_semester: str | None,
+    subject_aliases: dict[str, list[str]] | None = None,
+    input_dir: str = "data/input",
+) -> ExamConfig:
     """解析单个考试条目文件。"""
     with open(path, encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
@@ -243,7 +254,7 @@ def _load_exam_file(path: Path, folder_semester: str | None) -> ExamConfig:
         raise ValueError(f"{path}: format 应为 weekly/joint，当前为 {fmt!r}")
     exam_type = _clean(raw.get("type")) or "默认"
     importance = _clean(raw.get("importance"))
-    folder = _clean(raw.get("folder"))
+    folder = _clean(raw.get("folder")) or input_dir
     file_name = _clean(raw.get("file"))
     if not file_name:
         raise ValueError(f"{path}: file 必填")
@@ -293,9 +304,8 @@ def _load_exam_file(path: Path, folder_semester: str | None) -> ExamConfig:
     else:
         show_big_questions = bool(raw_sbq)
 
-    if fmt == "joint" and not name:
-        raise ValueError(f"{path}: 联考（joint）必须显式填写 name")
-    name = normalize_exam_name(name, semester)
+    # name 非必填：留空由文件名提取；规范名 = 学期简写 + 科目 + 考试名
+    name = normalize_exam_name(name, semester, subject, subject_aliases)
 
     return ExamConfig(
         name=name,
@@ -319,14 +329,21 @@ def _load_exam_file(path: Path, folder_semester: str | None) -> ExamConfig:
     )
 
 
-def _load_exams(exams_dir: str, cfg_path: Path) -> list[ExamConfig]:
+def _load_exams(
+    exams_dir: str,
+    cfg_path: Path,
+    subject_aliases: dict[str, list[str]] | None = None,
+    input_dir: str = "data/input",
+) -> list[ExamConfig]:
     """扫描并解析全部考试条目，检查名称唯一性。"""
     root = Path(exams_dir)
     if not root.is_dir():
         raise ValueError(f"{cfg_path}: exams_dir 不存在: {root}")
 
     exams = [
-        _load_exam_file(Path(file_path), folder_semester)
+        _load_exam_file(
+            Path(file_path), folder_semester, subject_aliases, input_dir
+        )
         for file_path, folder_semester in discover_exam_files(exams_dir)
     ]
     seen: dict[str, str] = {}
@@ -437,6 +454,7 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
         raise ValueError(f"{cfg_path}: output 下未知配置键 {sorted(unknown)}")
 
     config = AnalysisConfig(
+        input_dir=str(raw.get("input_dir", "data/input")),
         exams_dir=str(raw.get("exams_dir", "config/exams")),
         parsed_dir=str(raw.get("parsed_dir", "data/parsed")),
         parsed_format=str(raw.get("parsed_format", "csv")),
@@ -463,7 +481,9 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
         absent_strategy=absent_strategy,
         score_bands=score_bands,
     )
-    config.exams = _load_exams(config.exams_dir, cfg_path)
+    config.exams = _load_exams(
+        config.exams_dir, cfg_path, subject_aliases, config.input_dir
+    )
     config.class_infos = load_class_configs(config.classes_dir)
     config.teacher_maps = load_subject_configs(config.subjects_dir)
     return config
@@ -590,21 +610,29 @@ def semester_abbr(semester: str) -> str | None:
     return None
 
 
-def normalize_exam_name(name: str | None, semester: str | None) -> str | None:
-    """规范化考试名称：名称未含学期时，在前面加学期简称。
+def normalize_exam_name(
+    name: str | None,
+    semester: str | None,
+    subject: str | None = None,
+    subject_aliases: dict[str, list[str]] | None = None,
+) -> str | None:
+    """规范化考试名称：学期简写 + 科目 + 考试名，逐段判断已存在则不重复添加。
 
     - name 为 None（留待文件名提取）时原样返回；
-    - 名称已含学期全称或简称时不再添加；
-    - semester 无法推导简称时不添加。
+    - 学期：已含学期全称或简称时不再添加，无法推导简称时不添加；
+    - 科目：name 已含科目规范名或其别名时不再添加（如 外语 的别名 英语）。
     """
-    if not name or not semester:
+    if not name:
         return name
-    abbr = semester_abbr(semester)
-    if not abbr:
-        return name
-    if abbr in name or semester in name:
-        return name
-    return abbr + name
+    parts = ""
+    abbr = semester_abbr(semester) if semester else None
+    if abbr and abbr not in name and semester not in name:
+        parts += abbr
+    if subject and subject not in name:
+        aliases = (subject_aliases or {}).get(subject, [])
+        if not any(alias and alias in name for alias in aliases):
+            parts += subject
+    return parts + name
 
 
 def discover_exam_files(

@@ -66,6 +66,24 @@ def test_resolve_exam_name_not_found():
     assert resolve_exam_name(exam) is None
 
 
+def test_resolve_exam_name_adds_subject():
+    exam = ExamConfig(
+        file="【测试--限时练一】学生成绩.xlsx",
+        semester="高一第二学期",
+        subject="地理",
+    )
+    assert resolve_exam_name(exam) == "高一下地理限时练一"
+
+
+def test_resolve_exam_name_skips_subject_alias():
+    exam = ExamConfig(
+        file="【测试--英语周测】学生成绩.xlsx",
+        semester="高一第二学期",
+        subject="外语",
+    )
+    assert resolve_exam_name(exam, SUBJECTS, ALIASES) == "高一下英语周测"
+
+
 def _weekly_df() -> pd.DataFrame:
     return pd.DataFrame(
         [

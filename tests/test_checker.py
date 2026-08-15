@@ -69,7 +69,7 @@ def test_run_check_missing_file_reports_problem(tmp_path, capsys):
     assert problems == 1
 
 
-def test_run_check_missing_name_reports_problem(tmp_path, capsys):
+def test_run_check_name_extracted_from_filename(tmp_path, capsys):
     exams_dir = tmp_path / "exams"
     (exams_dir / "高一第一学期").mkdir(parents=True)
     exam_file = exams_dir / "高一第一学期" / "测试.yaml"
@@ -94,7 +94,37 @@ def test_run_check_missing_name_reports_problem(tmp_path, capsys):
     )
     problems = run_check(load_config(str(cfg_path)))
     out = capsys.readouterr().out
-    assert "考试名称（name）必填" in out
+    assert "文件名提取" in out
+    assert "留空，使用考试全称" in out  # short_name 为空不 FAIL，用全称
+    assert problems == 0
+
+
+def test_run_check_missing_subject_reports_problem(tmp_path, capsys):
+    exams_dir = tmp_path / "exams"
+    (exams_dir / "高一第一学期").mkdir(parents=True)
+    exam_file = exams_dir / "高一第一学期" / "测试.yaml"
+    exam_file.write_text(
+        "name: 测试\n"
+        "folder: data/input/测试样例\n"
+        "file: 【教学班报告--高一下地理限时练一】所有班级学生小题得分明细.xlsx\n"
+        "subject: ''\n",
+        encoding="utf-8",
+    )
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        yaml.safe_dump(
+            {
+                "subjects": ["语文", "数学", "外语", "物理", "化学", "生物", "政治", "历史", "地理", "技术"],
+                "exams_dir": str(exams_dir),
+                "output": {"dir": str(tmp_path / "out")},
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    problems = run_check(load_config(str(cfg_path)))
+    out = capsys.readouterr().out
+    assert "科目（subject）必填" in out
     assert "FAIL" in out
     assert problems == 1
 

@@ -13,8 +13,8 @@ from __future__ import annotations
 import pandas as pd
 
 from .adapters.registry import auto_detect_format
-from .config import AnalysisConfig, ExamConfig
-from .detect import detect_subject_from_filename
+from .config import AnalysisConfig, ExamConfig, normalize_exam_name
+from .detect import detect_subject_from_filename, extract_exam_name_from_filename
 from .io_utils import read_raw_sheet
 from .quality import write_check_reports
 from .storage import read_score_summary
@@ -75,28 +75,34 @@ def check_exam(exam: ExamConfig, config: AnalysisConfig) -> dict:
     result["preview"]["格式"] = fmt
 
     name = exam.name
+    name_source = "配置"
+    if name is None:
+        extracted = extract_exam_name_from_filename(exam.full_path)
+        if extracted:
+            subject = exam.subject or detect_subject_from_filename(
+                exam.full_path, config.subjects, config.subject_aliases
+            )
+            name = normalize_exam_name(
+                extracted, exam.semester, subject, config.subject_aliases
+            )
+            name_source = "文件名提取"
     if name:
-        add_check("名称", "PASS", name)
+        exam.name = name  # 供规范表路径解析使用
+        add_check("名称", "PASS", f"{name}（来源：{name_source}）")
     else:
-        add_check("名称", "FAIL", "考试名称（name）必填，请在考试配置中填写")
+        add_check("名称", "FAIL", "无法提取考试名称，请检查文件命名或填写 name")
     result["preview"]["名称"] = name
 
     if exam.short_name:
         add_check("考试简称", "PASS", exam.short_name)
     else:
-        add_check("考试简称", "FAIL", "short_name 必填（个人成绩单内使用）")
+        add_check("考试简称", "PASS", "留空，使用考试全称")
 
     subject = exam.subject
-    subject_source = "配置"
-    if subject is None:
-        subject = detect_subject_from_filename(
-            exam.full_path, config.subjects, config.subject_aliases
-        )
-        subject_source = "文件名推测"
     if subject:
-        add_check("科目", "PASS", f"{subject}（来源：{subject_source}）")
+        add_check("科目", "PASS", f"{subject}（来源：配置）")
     else:
-        add_check("科目", "WARN", "无法推测科目，请手动指定 subject")
+        add_check("科目", "FAIL", "科目（subject）必填，请在考试配置中填写")
     result["preview"]["科目"] = subject
 
     samples = _extract_class_samples(raw)

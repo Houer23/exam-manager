@@ -64,7 +64,7 @@ def test_run_pipeline_verify_roster(tmp_path, capsys):
     run_pipeline(cfg_path, verify_roster=True)
     out_text = capsys.readouterr().out
     assert "[名单核对]" in out_text
-    assert (out / "quality" / "名单核对_高一下周测.csv").is_file()
+    assert (out / "quality" / "名单核对_高一下地理周测.csv").is_file()
 
 
 def test_parse_exams_writes_and_reuses(tmp_path, capsys):
@@ -74,10 +74,10 @@ def test_parse_exams_writes_and_reuses(tmp_path, capsys):
     parse_exams(cfg_path)
     out1 = capsys.readouterr().out
     assert "[完成]" in out1
-    assert "高一下周测" in out1
+    assert "高一下地理周测" in out1
 
-    score_path = parsed / "高一第二学期" / "高一下周测" / "score_summary.csv"
-    question_path = parsed / "高一第二学期" / "高一下周测" / "question_detail.csv"
+    score_path = parsed / "高一第二学期" / "高一下地理周测" / "score_summary.csv"
+    question_path = parsed / "高一第二学期" / "高一下地理周测" / "question_detail.csv"
     assert score_path.is_file()
     assert question_path.is_file()
     score_df = pd.read_csv(score_path, encoding="utf-8-sig")
@@ -124,7 +124,7 @@ def test_run_pipeline_writes_report_and_statistics(tmp_path, capsys):
 
     report = out / "reports" / "高一第二学期" / "成绩分析汇总.xlsx"
     assert report.is_file()
-    stat = out / "statistics" / "高一第二学期" / "高一下周测.xlsx"
+    stat = out / "statistics" / "高一第二学期" / "高一下地理周测.xlsx"
     assert stat.is_file()
     sheets = pd.read_excel(stat, sheet_name=None)
     assert set(sheets) == {"科目统计", "分数段分布", "个人排名", "班级对比", "教师对比"}
@@ -132,8 +132,8 @@ def test_run_pipeline_writes_report_and_statistics(tmp_path, capsys):
     assert (out / "run-info" / "latest" / "运行日志.txt").is_file()
     assert (out / "quality" / "数据质量.xlsx").is_file()
     results = out / "results" / "高一第二学期"
-    assert (results / "高一下周测" / "高一下周测_柯_班级成绩汇总.xlsx").is_file()
-    assert (results / "高一下周测" / "高一下周测_全部班级_班级成绩汇总.xlsx").is_file()
+    assert (results / "高一下地理周测" / "高一下地理周测_柯_班级成绩汇总.xlsx").is_file()
+    assert (results / "高一下地理周测" / "高一下地理周测_全部班级_班级成绩汇总.xlsx").is_file()
     assert list(results.glob("*_全部班级_个人成绩单.xlsx"))
 
     wb = openpyxl.load_workbook(stat)
@@ -191,10 +191,10 @@ def test_run_pipeline_exam_filter(tmp_path, capsys):
         encoding="utf-8",
     )
 
-    run_pipeline(cfg_path, exam="高一下周测")
+    run_pipeline(cfg_path, exam="高一下地理周测")
     out_text = capsys.readouterr().out
-    assert "[统计] 高一下周测" in out_text
-    assert "高一下缺考联考" not in out_text
+    assert "[统计] 高一下地理周测" in out_text
+    assert "高一下地理缺考联考" not in out_text
 
     with pytest.raises(ValueError, match="未找到指定考试"):
         run_pipeline(cfg_path, exam="不存在的考试")

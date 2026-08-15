@@ -123,6 +123,8 @@ current_semester: 高一第二学期
 current_exam: ""
 
 # 目录配置
+# 默认成绩单输入目录：考试配置 folder 留空时使用
+input_dir: data/input
 exams_dir: config/exams
 classes_dir: config/classes
 subjects_dir: config/subjects
@@ -228,25 +230,27 @@ class_summary:
 DEFAULT_EXAMS = r"""# 考试条目模板：复制本文件并改名（如 2026-期中-地理.yaml）
 # 文件名不要以 _ 开头（下划线开头的文件会被忽略，如本模板）。
 # 所有字段均可省略，省略表示"自动识别或使用默认值"。
+# 规范考试名称 = 学期简写 + 科目 + 考试名（已含相关内容时不重复添加）。
 
-name: ""                     # 留空 = weekly 从文件名自动提取；联考请填"联考"
+subject: ""                  # 必填：科目（check 校验，留空不通过）
+semester: ""                 # 可省略：放入"高一第一学期"这类子文件夹时默认取文件夹名；显式声明优先
+date: ""                     # 考试日期（YYYY-MM-DD）；留空 = 程序运行当日
+folder: ""                   # 可省略：留空 = 取全局配置 input_dir 默认成绩单位置
+file: xxx.xlsx               # 必填：成绩文件名
+name: ""                     # 可省略：留空 = 从文件名自动提取；提取失败时 check 不通过
+short_name: ""               # 可省略：留空 = 使用考试全称作为简称
+question_display: split      # 个人成绩单小题呈现：split=每小题一列；merged=按大题合并为 值|值|值
+show_big_questions: false    # 是否额外显示主观大题汇总分列
+
 format: ""                   # 留空 = 按表头特征自动识别（weekly/joint）
 type: 默认                   # 考试类型：默认/学考/模考…（联合分析筛选用）
 importance: ""               # 留空 = 由 format 推导（joint=联考，weekly=平时）
-semester: ""                 # 可省略：放入"高一第一学期"这类子文件夹时默认取文件夹名；显式声明优先
-date: ""                     # 考试日期（YYYY-MM-DD）；留空 = 程序运行当日
-folder: data/input           # 成绩文件所在文件夹（留空 = data/input）
-file: xxx.xlsx               # 必填：成绩文件名
-subject: ""                  # 留空 = 从文件名推测科目
 full_score: 100              # 留空 = 使用科目默认值
 objective_full_score: 50     # 留空 = 使用科目默认值；无默认时必填
 subjective_full_score: 50    # 留空 = 使用科目默认值；无默认时必填
 default_grade: ""            # 留空 = 使用全局默认年级（高一）
 sheet: ""                    # 留空 = 自动选择 sheet
 filter_by_selection: true    # 名单核对是否按七选三过滤：true=按选课过滤；false=按全部班级核对
-short_name: 限时练一          # 必填：考试简称（个人成绩单内使用）
-question_display: split      # 个人成绩单小题呈现：split=每小题一列；merged=按大题合并为 值|值|值
-show_big_questions: false    # 是否额外显示主观大题汇总分列
 """
 
 DEFAULT_CLASSES = r"""# 班级配置模板：复制并改名为 <学期>.yaml（如 高一第二学期.yaml）

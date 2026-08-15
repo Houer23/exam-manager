@@ -30,6 +30,18 @@ data/parsed/
 data/roster/*
 !data/roster/.gitkeep
 
+# 考试条目：仅模板入库，其余（各学期考试配置）本地维护
+config/exams/*
+!config/exams/_template.yaml
+
+# 班级配置：仅模板入库，其余（各学期具体配置）本地维护
+config/classes/*
+!config/classes/_template.yaml
+
+# 学科配置：仅模板入库，其余（各学期_学科具体配置）本地维护
+config/subjects/*
+!config/subjects/_template.yaml
+
 # 日志
 *.log
 

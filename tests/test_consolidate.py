@@ -63,10 +63,10 @@ def test_select_exams_filters():
 
 
 def test_merge_score_tables():
-    e1 = ExamConfig(name="高一下期中联考", type="默认", semester="高一第二学期", date="2026-04-20")
+    e1 = ExamConfig(name="高一下地理期中联考", type="默认", semester="高一第二学期", date="2026-04-20")
     e2 = ExamConfig(name="高一下地理限时练一", type="默认", semester="高一第二学期", date="2026-03-25")
     df1 = _score_df(
-        "高一下期中联考",
+        "高一下地理期中联考",
         ["250907010001", "250907010002"],
         [70.0, 80.0],
         [0.7, 0.8],
@@ -86,7 +86,7 @@ def test_merge_score_tables():
 
     by_id = wide.set_index("student_id")
     row = by_id.loc["250907010001"]
-    assert row["高一下期中联考_得分率"] == 0.7
+    assert row["高一下地理期中联考_得分率"] == 0.7
     assert row["高一下地理限时练一_得分率"] == 0.84
     assert row["参考场次"] == 2
     assert abs(row["平均得分率"] - 0.77) < 1e-9
@@ -136,11 +136,11 @@ def test_run_merge_writes_outputs(tmp_path):
     parsed = tmp_path / "parsed"
     out = tmp_path / "out"
 
-    e1 = ExamConfig(name="高一下期中联考", type="默认", semester="高一第二学期", date="2026-04-20")
+    e1 = ExamConfig(name="高一下地理期中联考", type="默认", semester="高一第二学期", date="2026-04-20")
     e2 = ExamConfig(name="高一下地理限时练一", type="默认", semester="高一第二学期", date="2026-03-25")
     write_parsed_tables(
         str(parsed), e1,
-        _score_df("高一下期中联考", ["250907010001", "250907010002"], [70.0, 80.0], [0.7, 0.8], "高一10班", "高一", "青田中学"),
+        _score_df("高一下地理期中联考", ["250907010001", "250907010002"], [70.0, 80.0], [0.7, 0.8], "高一10班", "高一", "青田中学"),
         pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
     )
     write_parsed_tables(
@@ -148,7 +148,7 @@ def test_run_merge_writes_outputs(tmp_path):
         _score_df("高一下地理限时练一", ["250907010001"], [84.0], [0.84], "高一13班", "高一", "遂昌中学"),
         pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
     )
-    _write_exam_yaml(exams_dir, "高一第二学期", "联考", "高一下期中联考", "data/input/测试样例", "地理原始数据.xlsx")
+    _write_exam_yaml(exams_dir, "高一第二学期", "联考", "高一下地理期中联考", "data/input/测试样例", "地理原始数据.xlsx")
     _write_exam_yaml(exams_dir, "高一第二学期", "周测", "高一下地理限时练一", "data/input/测试样例", "周测.xlsx")
 
     cfg_path = _write_config(tmp_path, exams_dir, parsed, out)
@@ -159,7 +159,7 @@ def test_run_merge_writes_outputs(tmp_path):
     assert wide_path.is_file()
     assert long_path.is_file()
     wide = pd.read_csv(wide_path, encoding="utf-8-sig")
-    assert {"student_id", "平均得分率", "参考场次", "高一下期中联考_得分率", "高一下地理限时练一_得分率"} <= set(wide.columns)
+    assert {"student_id", "平均得分率", "参考场次", "高一下地理期中联考_得分率", "高一下地理限时练一_得分率"} <= set(wide.columns)
     assert len(wide) == 2
 
 
@@ -168,26 +168,26 @@ def test_run_merge_with_baseline(tmp_path):
     parsed = tmp_path / "parsed"
     out = tmp_path / "out"
 
-    e1 = ExamConfig(name="高一下期中联考", type="默认", semester="高一第二学期", date="2026-04-20")
-    e2 = ExamConfig(name="高一上基准", type="默认", semester="高一第一学期", date="2026-01-10")
+    e1 = ExamConfig(name="高一下地理期中联考", type="默认", semester="高一第二学期", date="2026-04-20")
+    e2 = ExamConfig(name="高一上地理基准", type="默认", semester="高一第一学期", date="2026-01-10")
     write_parsed_tables(
         str(parsed), e1,
-        _score_df("高一下期中联考", ["250907010001"], [70.0], [0.7], "高一10班", "高一", "青田中学"),
+        _score_df("高一下地理期中联考", ["250907010001"], [70.0], [0.7], "高一10班", "高一", "青田中学"),
         pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
     )
     write_parsed_tables(
         str(parsed), e2,
-        _score_df("高一上基准", ["250907010001"], [60.0], [0.6], "高一02班", "高一", "青田中学"),
+        _score_df("高一上地理基准", ["250907010001"], [60.0], [0.6], "高一02班", "高一", "青田中学"),
         pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
     )
-    _write_exam_yaml(exams_dir, "高一第二学期", "联考", "高一下期中联考", "data/input/测试样例", "地理原始数据.xlsx")
-    _write_exam_yaml(exams_dir, "高一第一学期", "基准", "基准", "data/input/测试样例", "基准.xlsx")
+    _write_exam_yaml(exams_dir, "高一第二学期", "联考", "高一下地理期中联考", "data/input/测试样例", "地理原始数据.xlsx")
+    _write_exam_yaml(exams_dir, "高一第一学期", "基准", "高一上地理基准", "data/input/测试样例", "基准.xlsx")
 
     cfg_path = _write_config(tmp_path, exams_dir, parsed, out)
-    run_merge(cfg_path, baseline_exams="高一上基准")
+    run_merge(cfg_path, baseline_exams="高一上地理基准")
 
     wide = pd.read_csv(out / "merged" / "merged_wide.csv", encoding="utf-8-sig")
-    assert "高一上基准_得分率" in wide.columns
+    assert "高一上地理基准_得分率" in wide.columns
     assert len(wide) == 1
 
 

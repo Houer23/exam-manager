@@ -144,7 +144,7 @@ def merge_to_output(
     """读规范表合并并落盘，返回 (长表, 宽表, [(考试, 规范表)])。"""
     for exam in config.exams:
         if exam.name is None:
-            exam.name = resolve_exam_name(exam)
+            exam.name = resolve_exam_name(exam, config.subjects, config.subject_aliases)
     semester = semester or config.current_semester
     types_list = [t.strip() for t in types.split(",")] if types else None
     selected = select_exams(

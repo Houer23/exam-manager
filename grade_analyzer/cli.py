@@ -94,7 +94,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_config_arg(add_p)
     add_p.add_argument(
-        "--folder", default=None, help="成绩文件所在文件夹（留空=data/input，缺省=交互式问答）"
+        "--folder",
+        default=None,
+        help="成绩文件所在文件夹（留空=取全局 input_dir；缺省=交互式问答）",
     )
     add_p.add_argument("--file", default=None, help="成绩文件名（缺省=交互式问答）")
     add_p.add_argument("--name", default=None, help="考试名称（留空=自动提取）")

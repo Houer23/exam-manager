@@ -72,26 +72,27 @@ pip install -r requirements.txt
 - `default_school`：原始表无"学校"列时填充的默认学校；
 - `current_semester`：run / merge / results 默认处理的学期；
 - `default_grade`：成绩文件无年级时的默认年级；
+- `input_dir`：默认成绩单输入目录（考试配置 `folder` 留空时使用）；
 - `subjects` / `subject_aliases` / `subject_defaults`：科目词表、别名（如 英语→外语）与满分默认值；
 - 各类目录：`exams_dir`、`parsed_dir`、`roster_dir`、`results_dir`、`output` 等。
 
 ### 考试条目 `config/exams/<学期>/<考试名>.yaml`
 
-一场考试一个 yaml，复制 `config/exams/_template.yaml` 新建。常用字段：
+一场考试一个 yaml，复制 `config/exams/_template.yaml` 新建。规范考试名称 = **学期简写 + 科目 + 考试名**（已含学期/科目或其别名时不重复添加）。常用字段（按模板顺序）：
 
 | 字段 | 说明 |
 | --- | --- |
-| `name` | 考试名称，**必填**（check 校验，为空不通过） |
-| `format` | `weekly` / `joint`，留空自动识别 |
-| `type` | 考试类型（默认/学考/模考…），联合分析筛选用 |
+| `subject` | 科目，**必填**（check 校验，留空不通过） |
 | `semester` | 学期全称，省略时取子文件夹名；显式声明优先 |
 | `date` | 考试日期 YYYY-MM-DD，留空取程序运行当日 |
-| `folder` / `file` | 原始成绩文件所在文件夹与文件名 |
-| `subject` | 科目，留空从文件名推测 |
-| `full_score` 等 | 总分/客观/主观满分，留空用科目默认值 |
-| `short_name` | 考试简称，**必填**（个人成绩单内使用） |
+| `folder` / `file` | 原始成绩文件所在文件夹与文件名；`folder` 可省略，留空取全局 `input_dir` |
+| `name` | 考试名称，可省略；留空从文件名自动提取，提取失败 check 不通过 |
+| `short_name` | 考试简称，可省略；留空使用考试全称 |
 | `question_display` | `split`=小题分列 / `merged`=按大题合并 |
 | `show_big_questions` | 是否额外显示主观大题汇总列 |
+| `format` | `weekly` / `joint`，留空自动识别 |
+| `type` | 考试类型（默认/学考/模考…），联合分析筛选用 |
+| `full_score` 等 | 总分/客观/主观满分，留空用科目默认值 |
 
 ### 班级与学科配置
 
@@ -102,6 +103,19 @@ pip install -r requirements.txt
 
 - `config/charts/config.yaml`：统计图分组、指标、颜色、字体、坐标轴等；
 - `config/results/config.yaml`：个人成绩单范围/样式、班级汇总页眉页脚/字体/边框等。
+
+### 配置文件修改注意事项
+
+所有配置文件均为 YAML（`yaml.safe_load` 解析），字符值带不带引号会影响类型解析：
+
+- **纯中文/英文单词可不带引号**：`name: 期中联考`、`subject: 地理`、`question_display: split`；
+- **必须用双引号的值**：
+  - 空字符串：`name: ""`（注意：`name:` 或省略该行等价于空，项目会将空串与 null 统一为"未设置"）；
+  - 日期：`date: "2026-04-20"`（不带引号会被解析成日期对象）；
+  - 含 `: `、` #` 或 `- ? : [ ] { } , & * ! | > ' " % @` 等特殊字符的值；
+  - 形似数字/布尔/null 且本意是字符串的值；
+- **不要带引号的值**：数值（`full_score: 100`）、布尔（`filter_by_selection: true`），带引号会被解析成字符串，可能影响校验；
+- 修改配置后建议运行 `python -m grade_analyzer.cli check` 确认可正常加载。
 
 ## 使用流程
 

@@ -62,6 +62,8 @@ current_exam: ""
 # 考试条目目录：每场考试一个 yaml 文件（下划线开头的文件会被忽略，如模板）
 # 可按学期建子文件夹，子文件夹名作为该文件夹内条目的默认 semester；
 # 条目内显式声明 semester 时以文件声明为优先。
+# 默认成绩单输入目录：考试配置 folder 留空时使用
+input_dir: data/input
 exams_dir: config/exams
 
 # 班级配置目录：<学期>.yaml（键为默认学校的班级名，level 限 A/B）

@@ -77,25 +77,25 @@ def test_list_exams_status_columns(tmp_path):
     raw_dir.mkdir()
     _write_exam(
         exams_dir, "高一第二学期", "周测",
-        name="高一下周测", folder=str(raw_dir), date="2026-05-12",
+        name="高一下地理周测", folder=str(raw_dir), date="2026-05-12",
     )
     _write_exam(
         exams_dir, "高一第二学期", "联考",
-        name="高一下联考", folder=str(raw_dir),
+        name="高一下地理联考", folder=str(raw_dir),
     )
     (raw_dir / "周测.xlsx").write_text("raw", encoding="utf-8")
-    _write_parsed(tmp_path, "高一第二学期", "高一下周测")
+    _write_parsed(tmp_path, "高一第二学期", "高一下地理周测")
 
     cfg_path = str(_write_global(tmp_path, exams_dir))
     df = list_exams(cfg_path)
     assert len(df) == 2
-    row = df[df["考试名称"] == "高一下周测"].iloc[0]
+    row = df[df["考试名称"] == "高一下地理周测"].iloc[0]
     assert row["学期"] == "高一第二学期"
     assert row["日期"] == "2026-05-12"
     assert row["满分"] == "100"
     assert row["检查"] == "可检查"
     assert row["成绩单"] == "已解析"
-    row2 = df[df["考试名称"] == "高一下联考"].iloc[0]
+    row2 = df[df["考试名称"] == "高一下地理联考"].iloc[0]
     assert row2["检查"] == "文件缺失"
     assert row2["成绩单"] == "未解析"
 
@@ -104,29 +104,29 @@ def test_list_exams_filters(tmp_path):
     exams_dir = tmp_path / "exams"
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
-    _write_exam(exams_dir, "高一第二学期", "周测", name="高一下周测", folder=str(raw_dir))
-    _write_exam(exams_dir, "高一第二学期", "联考", name="高一下联考", folder=str(raw_dir))
-    _write_exam(exams_dir, "高一第二学期", "模拟", name="高一下模拟", folder=str(raw_dir))
+    _write_exam(exams_dir, "高一第二学期", "周测", name="高一下地理周测", folder=str(raw_dir))
+    _write_exam(exams_dir, "高一第二学期", "联考", name="高一下地理联考", folder=str(raw_dir))
+    _write_exam(exams_dir, "高一第二学期", "模拟", name="高一下地理模拟", folder=str(raw_dir))
     (raw_dir / "周测.xlsx").write_text("raw", encoding="utf-8")
     (raw_dir / "联考.xlsx").write_text("raw", encoding="utf-8")
-    _write_parsed(tmp_path, "高一第二学期", "高一下周测")
+    _write_parsed(tmp_path, "高一第二学期", "高一下地理周测")
 
     cfg_path = str(_write_global(tmp_path, exams_dir))
     assert list(list_exams(cfg_path, checkable=True)["考试名称"]) == [
-        "高一下周测", "高一下联考",
+        "高一下地理周测", "高一下地理联考",
     ]
-    assert list(list_exams(cfg_path, results_ready=True)["考试名称"]) == ["高一下周测"]
+    assert list(list_exams(cfg_path, results_ready=True)["考试名称"]) == ["高一下地理周测"]
     assert list(
         list_exams(cfg_path, checkable=True, results_ready=True)["考试名称"]
-    ) == ["高一下周测"]
+    ) == ["高一下地理周测"]
 
 
 def test_list_exams_stale_parsed(tmp_path):
     exams_dir = tmp_path / "exams"
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
-    _write_exam(exams_dir, "高一第二学期", "周测", name="高一下周测", folder=str(raw_dir))
-    _write_parsed(tmp_path, "高一第二学期", "高一下周测")
+    _write_exam(exams_dir, "高一第二学期", "周测", name="高一下地理周测", folder=str(raw_dir))
+    _write_parsed(tmp_path, "高一第二学期", "高一下地理周测")
     # 原始文件后创建 => 解析表早于原始文件 => 已过期
     (raw_dir / "周测.xlsx").write_text("raw", encoding="utf-8")
 
@@ -140,11 +140,11 @@ def test_list_exams_semester_filter(tmp_path):
     exams_dir = tmp_path / "exams"
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
-    _write_exam(exams_dir, "高一第二学期", "周测", name="高一下周测", folder=str(raw_dir))
-    _write_exam(exams_dir, "高二第一学期", "周测", name="高二上周测", folder=str(raw_dir))
+    _write_exam(exams_dir, "高一第二学期", "周测", name="高一下地理周测", folder=str(raw_dir))
+    _write_exam(exams_dir, "高二第一学期", "周测", name="高二上地理周测", folder=str(raw_dir))
     (raw_dir / "周测.xlsx").write_text("raw", encoding="utf-8")
 
     cfg_path = str(_write_global(tmp_path, exams_dir))
     df = list_exams(cfg_path, semester="高二第一学期")
-    assert list(df["考试名称"]) == ["高二上周测"]
+    assert list(df["考试名称"]) == ["高二上地理周测"]
     assert list(df["学期"]) == ["高二第一学期"]

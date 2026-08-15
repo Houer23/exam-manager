@@ -47,7 +47,7 @@ def test_load_global_and_exams_from_folder(tmp_path):
 
     assert len(cfg.exams) == 1
     exam = cfg.exams[0]
-    assert exam.name == "高一下周测"  # 名称缺学期，自动加学期简称
+    assert exam.name == "高一下地理周测"  # 规范名 = 学期简写 + 科目 + 考试名
     assert exam.semester == "高一第二学期"  # 来自子文件夹名
     assert exam.date == "2026-05-12"
     assert exam.type == "默认"
@@ -92,7 +92,7 @@ def test_explicit_semester_overrides_folder(tmp_path):
     )
     cfg = load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
     assert cfg.exams[0].semester == "高一第一学期"
-    assert cfg.exams[0].name == "高一上周测"
+    assert cfg.exams[0].name == "高一上地理周测"
 
 
 def test_empty_strings_normalized(tmp_path):
@@ -129,7 +129,7 @@ def test_explicit_name_gets_semester_prefix(tmp_path):
     exams_dir = tmp_path / "exams"
     _write_exam(exams_dir, "高一第二学期", "联考", name="联考")
     cfg = load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
-    assert cfg.exams[0].name == "高一下联考"
+    assert cfg.exams[0].name == "高一下地理联考"
 
 
 def test_filter_by_selection_default_and_override(tmp_path):
@@ -140,8 +140,8 @@ def test_filter_by_selection_default_and_override(tmp_path):
     )
     cfg = load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
     by_name = {e.name: e for e in cfg.exams}
-    assert by_name["高一上甲"].filter_by_selection is True
-    assert by_name["高一下乙"].filter_by_selection is False
+    assert by_name["高一上地理甲"].filter_by_selection is True
+    assert by_name["高一下地理乙"].filter_by_selection is False
 
 
 def test_short_name_parsed(tmp_path):
@@ -151,11 +151,63 @@ def test_short_name_parsed(tmp_path):
     assert cfg.exams[0].short_name == "限时练一"
 
 
-def test_joint_requires_name(tmp_path):
+def test_joint_name_can_be_empty(tmp_path):
     exams_dir = tmp_path / "exams"
     _write_exam(exams_dir, "高一第一学期", "联考", format="joint")
-    with pytest.raises(ValueError, match="name"):
-        load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
+    cfg = load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
+    assert cfg.exams[0].name is None  # name 非必填，留空由文件名提取
+
+
+def test_normalize_name_skips_subject_alias(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(
+        exams_dir, "高一第二学期", "英语周测",
+        name="英语周测", subject="外语",
+    )
+    cfg = load_config(
+        str(
+            _write_global(
+                tmp_path,
+                exams_dir=str(exams_dir),
+                subject_aliases={"外语": ["英语", "俄语", "日语"]},
+            )
+        )
+    )
+    assert cfg.exams[0].name == "高一下英语周测"  # 别名已存在，不重复加"外语"
+
+
+def test_normalize_name_keeps_full_name(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(
+        exams_dir, "高一第二学期", "周测",
+        name="高一下地理周测", subject="地理",
+    )
+    cfg = load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
+    assert cfg.exams[0].name == "高一下地理周测"
+
+
+def test_folder_defaults_to_global_input_dir(tmp_path):
+    exams_dir = tmp_path / "exams"
+    input_dir = tmp_path / "input"
+    _write_exam(exams_dir, "高一第一学期", "周测", name="周测", folder=None)
+    cfg = load_config(
+        str(
+            _write_global(
+                tmp_path, exams_dir=str(exams_dir), input_dir=str(input_dir)
+            )
+        )
+    )
+    assert cfg.exams[0].folder == str(input_dir)
+    assert cfg.exams[0].full_path == str(input_dir / "周测.xlsx")
+
+
+def test_effective_short_name_falls_back_to_full_name(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(exams_dir, "高一第二学期", "周测", name="周测")
+    cfg = load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
+    exam = cfg.exams[0]
+    assert exam.short_name is None
+    assert exam.effective_short_name == "高一下地理周测"
 
 
 def test_unknown_global_key_raises(tmp_path):

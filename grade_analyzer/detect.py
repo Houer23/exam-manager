@@ -44,9 +44,26 @@ def detect_subject_from_filename(
     return None
 
 
-def resolve_exam_name(exam) -> str | None:
-    """解析考试名称：配置显式 > 文件名提取 + 学期前缀规范化。"""
+def resolve_exam_name(
+    exam,
+    subjects: list[str] | None = None,
+    subject_aliases: dict[str, list[str]] | None = None,
+) -> str | None:
+    """解析考试名称：配置显式 > 文件名提取 + 学期/科目规范化。
+
+    科目优先用配置值；为空时可用 subjects/aliases 从文件名推测，
+    仅用于拼接规范名（不修改 exam.subject，check 仍校验 subject 必填）。
+    """
     if exam.name:
         return exam.name
     extracted = extract_exam_name_from_filename(exam.full_path)
-    return normalize_exam_name(extracted, exam.semester) if extracted else None
+    if not extracted:
+        return None
+    subject = exam.subject
+    if not subject and subjects:
+        subject = detect_subject_from_filename(
+            exam.full_path, subjects, subject_aliases
+        )
+    return normalize_exam_name(
+        extracted, exam.semester, subject, subject_aliases
+    )

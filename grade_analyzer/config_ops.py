@@ -154,7 +154,7 @@ def list_exams(
         if semester and exam.semester != semester:
             continue
         if exam.name is None:
-            exam.name = resolve_exam_name(exam)
+            exam.name = resolve_exam_name(exam, config.subjects, config.subject_aliases)
         raw_exists = Path(exam.full_path).is_file()
         status = _parsed_status(config, exam)
         if checkable and not raw_exists:

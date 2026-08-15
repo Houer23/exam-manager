@@ -43,7 +43,7 @@ def parse_exams(
     # 先解析考试名称（weekly 名称从文件名提取），否则 exam_name 无法命中
     for exam in exams:
         if exam.name is None:
-            exam.name = resolve_exam_name(exam)
+            exam.name = resolve_exam_name(exam, config.subjects, config.subject_aliases)
     if exam_name:
         exams = [e for e in exams if e.name == exam_name]
         if not exams:
@@ -139,7 +139,7 @@ def run_pipeline(
         matched = None
         for e in config.exams:
             if e.name is None:
-                e.name = resolve_exam_name(e)
+                e.name = resolve_exam_name(e, config.subjects, config.subject_aliases)
             if e.name == exam:
                 matched = e
                 break
@@ -150,7 +150,7 @@ def run_pipeline(
     else:
         for e in config.exams:
             if e.name is None:
-                e.name = resolve_exam_name(e)
+                e.name = resolve_exam_name(e, config.subjects, config.subject_aliases)
 
     def event(stage: str, msg: str) -> None:
         events.append((time.strftime("%H:%M:%S"), stage, msg))
@@ -224,7 +224,7 @@ def run_results(
     # 先解析考试名称（weekly 名称从文件名提取），否则 --exam 无法命中
     for exam in exams:
         if exam.name is None:
-            exam.name = resolve_exam_name(exam)
+            exam.name = resolve_exam_name(exam, config.subjects, config.subject_aliases)
     if semester:
         exams = [e for e in exams if e.semester == semester]
     if exam_name:
