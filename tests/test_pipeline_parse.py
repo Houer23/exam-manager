@@ -10,7 +10,11 @@ from grade_analyzer.pipeline import parse_exams
 
 def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None):
     exams_dir = tmp_path / "exams"
+    classes_dir = tmp_path / "classes"
+    subjects_dir = tmp_path / "subjects"
     (exams_dir / "高一第二学期").mkdir(parents=True)
+    classes_dir.mkdir(exist_ok=True)
+    subjects_dir.mkdir(exist_ok=True)
     (exams_dir / "高一第二学期" / "周测.yaml").write_text(
         "name: 周测\n"
         "format: weekly\n"
@@ -22,10 +26,28 @@ def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None):
         "subjective_full_score: 15\n",
         encoding="utf-8",
     )
+    # 测试用班级/学科配置：不依赖工作区真实配置，新克隆环境也可运行
+    (classes_dir / "高一第二学期.yaml").write_text(
+        "高一13班: {level: A, course: 物化地}\n"
+        "高一6班: {level: B, course: 史地政}\n"
+        "高一16班: {level: A, course: 物化地}\n",
+        encoding="utf-8",
+    )
+    (subjects_dir / "高一第二学期_地理.yaml").write_text(
+        "subject: 地理\n"
+        "teacher_count: 1\n"
+        "teacher_names:\n"
+        "  A: 柯\n"
+        "class_teachers:\n"
+        "  高一13班: A\n",
+        encoding="utf-8",
+    )
     cfg = tmp_path / "config.yaml"
     data = {
         "subjects": ["语文", "数学", "外语", "物理", "化学", "生物", "政治", "历史", "地理", "技术"],
         "exams_dir": str(exams_dir),
+        "classes_dir": str(classes_dir),
+        "subjects_dir": str(subjects_dir),
         "parsed_dir": str(parsed_dir),
         "default_school": "青田中学",
         "output": {"dir": str(out_dir or tmp_path / "out"), "excel_name": "成绩分析汇总.xlsx"},

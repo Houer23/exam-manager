@@ -114,7 +114,7 @@ subject_defaults:
 
 default_full_score: 100
 default_grade: 高一
-default_school: 遂昌中学
+default_school: 示例中学
 
 # 规范表存储与复用
 parsed_dir: data/parsed
