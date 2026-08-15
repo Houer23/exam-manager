@@ -18,14 +18,14 @@ _GLOBAL_KEYS = {
     "analysis", "subjects", "subject_aliases", "subject_defaults",
     "default_full_score", "default_grade", "current_semester",
     "current_exam", "default_school", "parsed_dir", "parsed_format",
-    "exams_dir", "classes_dir", "subjects_dir", "output",
+    "exams_dir", "classes_dir", "subjects_dir", "roster_dir", "output",
 }
 _ANALYSIS_KEYS = {"pass_ratio", "excellent_ratio", "absent_strategy", "score_bands"}
 _OUTPUT_KEYS = {"dir", "excel_name"}
 _EXAM_KEYS = {
     "name", "format", "type", "importance", "folder", "file", "subject",
     "semester", "date", "full_score", "objective_full_score",
-    "subjective_full_score", "default_grade", "sheet",
+    "subjective_full_score", "default_grade", "sheet", "filter_by_selection",
 }
 _SUBJECT_DEFAULT_KEYS = {"full_score", "objective_full_score", "subjective_full_score"}
 _CLASS_CONFIG_KEYS = {"level", "course"}
@@ -64,6 +64,7 @@ class ExamConfig:
     subjective_full_score: float | None = None
     default_grade: str | None = None
     sheet: str | None = None
+    filter_by_selection: bool = True  # 名单核对是否按七选三过滤
 
     def effective_importance(self) -> str:
         """返回重要度：显式指定优先，否则由格式推导。"""
@@ -129,6 +130,7 @@ class AnalysisConfig:
     parsed_format: str = "csv"
     classes_dir: str = "config/classes"
     subjects_dir: str = "config/subjects"
+    roster_dir: str = "data/roster"
     output: OutputConfig = field(default_factory=OutputConfig)
     # 常见科目词表（用于文件名识别）
     subjects: list[str] = field(
@@ -262,6 +264,13 @@ def _load_exam_file(path: Path, folder_semester: str | None) -> ExamConfig:
     )
     default_grade = _clean(raw.get("default_grade"))
     sheet = _clean(raw.get("sheet"))
+    raw_fbs = raw.get("filter_by_selection", True)
+    if isinstance(raw_fbs, str):
+        filter_by_selection = raw_fbs.strip().lower() not in (
+            "", "false", "0", "no", "否",
+        )
+    else:
+        filter_by_selection = bool(raw_fbs)
 
     if fmt == "joint" and not name:
         raise ValueError(f"{path}: 联考（joint）必须显式填写 name")
@@ -282,6 +291,7 @@ def _load_exam_file(path: Path, folder_semester: str | None) -> ExamConfig:
         subjective_full_score=subjective_full_score,
         default_grade=default_grade,
         sheet=sheet,
+        filter_by_selection=filter_by_selection,
     )
 
 
@@ -406,6 +416,7 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
         exams_dir=str(raw.get("exams_dir", "config/exams")),
         parsed_dir=str(raw.get("parsed_dir", "data/parsed")),
         parsed_format=str(raw.get("parsed_format", "csv")),
+        roster_dir=str(raw.get("roster_dir", "data/roster")),
         output=OutputConfig(
             dir=str(out_raw.get("dir", "data/output")),
             excel_name=str(out_raw.get("excel_name", "成绩分析汇总.xlsx")),

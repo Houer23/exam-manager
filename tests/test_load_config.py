@@ -132,6 +132,18 @@ def test_explicit_name_gets_semester_prefix(tmp_path):
     assert cfg.exams[0].name == "高一下联考"
 
 
+def test_filter_by_selection_default_and_override(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(exams_dir, "高一第一学期", "甲", name="甲")
+    _write_exam(
+        exams_dir, "高一第二学期", "乙", name="乙", filter_by_selection=False
+    )
+    cfg = load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
+    by_name = {e.name: e for e in cfg.exams}
+    assert by_name["高一上甲"].filter_by_selection is True
+    assert by_name["高一下乙"].filter_by_selection is False
+
+
 def test_joint_requires_name(tmp_path):
     exams_dir = tmp_path / "exams"
     _write_exam(exams_dir, "高一第一学期", "联考", format="joint")

@@ -79,6 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--reparse", action="store_true", help="忽略缓存强制重新解析"
     )
+    run_parser.add_argument(
+        "--verify-roster",
+        action="store_true",
+        help="生成班级汇总时核对学生名单",
+    )
 
     # ---------- exam：考试条目管理 ----------
     exam_parser = subparsers.add_parser("exam", help="考试条目管理")
@@ -152,6 +157,19 @@ def build_parser() -> argparse.ArgumentParser:
     add_config_arg(set_p)
     set_p.add_argument("key", help="配置键（如 pass_ratio）")
     set_p.add_argument("value", help="配置值")
+
+    # ---------- roster：名单清洗与核对 ----------
+    roster_parser = subparsers.add_parser("roster", help="名单清洗与核对")
+    roster_sub = roster_parser.add_subparsers(dest="roster_command", required=True)
+
+    norm_p = roster_sub.add_parser("normalize", help="清洗名单并生成规范化文件")
+    add_config_arg(norm_p)
+    norm_p.add_argument("--semester", default=None, help="学期（缺省=当前学期）")
+
+    check_p = roster_sub.add_parser("check", help="核对指定学期/考试")
+    add_config_arg(check_p)
+    check_p.add_argument("--semester", default=None, help="学期（缺省=当前学期）")
+    check_p.add_argument("--exam", default=None, help="考试名称（缺省=全部）")
     return parser
 
 
@@ -187,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
             baseline_exams=args.baseline_exams,
             exam=args.exam,
             reparse=args.reparse,
+            verify_roster=args.verify_roster,
         )
     elif args.command == "exam":
         from .config_ops import add_exam, list_exams, remove_exam, update_exam
@@ -238,6 +257,22 @@ def main(argv: list[str] | None = None) -> int:
             get_config_value(args.config, key=args.key)
         else:
             set_config_value(args.config, key=args.key, value=args.value)
+    elif args.command == "roster":
+        from .config import load_config
+        from .roster import normalize_roster, run_roster_check
+
+        cfg = load_config(args.config)
+        if args.roster_command == "normalize":
+            semester = args.semester or cfg.current_semester
+            if not semester:
+                raise ValueError("未指定学期（--semester 或配置 current_semester）")
+            roster_df, issues_df = normalize_roster(cfg, semester)
+            print(
+                f"[名单] {semester}: 规范化 {len(roster_df)} 名学生，"
+                f"异常 {len(issues_df)} 条"
+            )
+        else:
+            run_roster_check(cfg, semester=args.semester, exam_name=args.exam)
     return 0
 
 

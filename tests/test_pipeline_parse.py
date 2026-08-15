@@ -7,7 +7,7 @@ from grade_analyzer.config import load_config
 from grade_analyzer.pipeline import parse_exams
 
 
-def _setup(tmp_path, parsed_dir, out_dir=None):
+def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None):
     exams_dir = tmp_path / "exams"
     (exams_dir / "高一第二学期").mkdir(parents=True)
     (exams_dir / "高一第二学期" / "周测.yaml").write_text(
@@ -22,20 +22,41 @@ def _setup(tmp_path, parsed_dir, out_dir=None):
         encoding="utf-8",
     )
     cfg = tmp_path / "config.yaml"
-    cfg.write_text(
-        yaml.safe_dump(
-            {
-                "subjects": ["语文", "数学", "外语", "物理", "化学", "生物", "政治", "历史", "地理", "技术"],
-                "exams_dir": str(exams_dir),
-                "parsed_dir": str(parsed_dir),
-                "default_school": "青田中学",
-                "output": {"dir": str(out_dir or tmp_path / "out"), "excel_name": "成绩分析汇总.xlsx"},
-            },
-            allow_unicode=True,
-        ),
-        encoding="utf-8",
-    )
+    data = {
+        "subjects": ["语文", "数学", "外语", "物理", "化学", "生物", "政治", "历史", "地理", "技术"],
+        "exams_dir": str(exams_dir),
+        "parsed_dir": str(parsed_dir),
+        "default_school": "青田中学",
+        "output": {"dir": str(out_dir or tmp_path / "out"), "excel_name": "成绩分析汇总.xlsx"},
+    }
+    if roster_dir:
+        data["roster_dir"] = str(roster_dir)
+    cfg.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     return str(cfg)
+
+
+def test_run_pipeline_verify_roster(tmp_path, capsys):
+    from grade_analyzer.pipeline import run_pipeline
+
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    roster_dir = tmp_path / "roster"
+    roster_dir.mkdir()
+    pd.DataFrame(
+        {
+            "姓名": ["柯一"],
+            "考号": ["250907010858"],
+            "性别": ["男"],
+            "七选三": ["物化地"],
+            "班级": ["高一年级13班"],
+        }
+    ).to_excel(roster_dir / "高一第二学期.xlsx", index=False)
+
+    cfg_path = _setup(tmp_path, parsed, out, str(roster_dir))
+    run_pipeline(cfg_path, verify_roster=True)
+    out_text = capsys.readouterr().out
+    assert "[名单核对]" in out_text
+    assert (out / "quality" / "名单核对_高一下周测.csv").is_file()
 
 
 def test_parse_exams_writes_and_reuses(tmp_path, capsys):

@@ -16,3 +16,4 @@ objective_full_score: 50     # 留空 = 使用科目默认值；无默认时必�
 subjective_full_score: 50    # 留空 = 使用科目默认值；无默认时必填
 default_grade: ""            # 留空 = 使用全局默认年级（高一）
 sheet: ""                    # 留空 = 自动选择 sheet
+filter_by_selection: true    # 名单核对是否按七选三过滤：true=按选课过滤；false=按全部班级核对

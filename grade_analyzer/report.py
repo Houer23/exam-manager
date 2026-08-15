@@ -423,13 +423,6 @@ def _set_header_footer(
     ws.oddFooter.right.text = right_footer
 
 
-def _roster_check(score: pd.DataFrame, verify_roster: bool) -> list[str]:
-    """学生名单核对接口：默认不启用，后续完善。"""
-    if not verify_roster:
-        return []
-    raise NotImplementedError("学生名单核对功能将在后续实现")
-
-
 def build_class_summaries(
     exam: ExamConfig,
     score: pd.DataFrame,
@@ -441,7 +434,10 @@ def build_class_summaries(
 
     只保留有成绩的行；未配置教师的班级不生成（check 已 WARN）。
     """
-    _roster_check(score, verify_roster)
+    if verify_roster:
+        from .roster import verify_exam
+
+        verify_exam(exam, score, config)
     valid = score[score["total_score"].notna()].copy()
     if valid.empty:
         return []

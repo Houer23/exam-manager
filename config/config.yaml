@@ -62,6 +62,8 @@ exams_dir: config/exams
 classes_dir: config/classes
 # 学科配置目录：<学期>_<学科>.yaml（教师代号从 A 起连续大写字母）
 subjects_dir: config/subjects
+# 名单目录：<学期>.xlsx（原始名单长表）+ <学期>_normalized.xlsx（规范化名单）
+roster_dir: data/roster
 
 # 输出配置
 output:

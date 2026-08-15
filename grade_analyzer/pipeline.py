@@ -94,6 +94,7 @@ def run_pipeline(
     baseline_exams: str | None = None,
     exam: str | None = None,
     reparse: bool = False,
+    verify_roster: bool = False,
 ) -> None:
     """执行完整分析流程。
 
@@ -122,7 +123,9 @@ def run_pipeline(
         questions = read_question_detail(
             config.parsed_dir, exam, config.parsed_format
         )
-        for summary_path in build_class_summaries(exam, score, questions, config):
+        for summary_path in build_class_summaries(
+            exam, score, questions, config, verify_roster=verify_roster
+        ):
             print(f"[班级汇总] {summary_path}")
     report_path = build_report(config, long_df, frames)
     print(f"[报告] {report_path}")

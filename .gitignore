@@ -26,6 +26,10 @@ data/output/*
 # 规范表缓存
 data/parsed/
 
+# 学生名单（含考号/性别/选科等敏感信息，不入库）
+data/roster/*
+!data/roster/.gitkeep
+
 # 日志
 *.log
 
