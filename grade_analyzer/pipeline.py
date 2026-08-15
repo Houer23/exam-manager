@@ -20,9 +20,11 @@ from .dist_charts import build_all_charts
 from .io_utils import read_raw_sheet
 from .storage import is_parsed_fresh, write_parsed_tables
 from .report import build_class_summaries, build_exam_statistics, build_report
+from .personal_strip import build_personal_strips
 from .quality import write_quality_excel
+from .result_config import load_results_config
 from .run_info import write_run_info
-from .storage import read_question_detail
+from .storage import read_question_detail, read_score_summary
 
 
 def parse_exams(
@@ -120,6 +122,7 @@ def run_pipeline(
     start = time.time()
     events: list[tuple[str, str, str]] = []
     charts_cfg = load_charts_config(config.charts_dir)
+    results_cfg = load_results_config(config.results_config_dir)
 
     def event(stage: str, msg: str) -> None:
         events.append((time.strftime("%H:%M:%S"), stage, msg))
@@ -142,7 +145,8 @@ def run_pipeline(
             config.parsed_dir, exam, config.parsed_format
         )
         summary_paths = build_class_summaries(
-            exam, score, questions, config, verify_roster=verify_roster
+            exam, score, questions, config, results_cfg,
+            verify_roster=verify_roster,
         )
         for summary_path in summary_paths:
             print(f"[班级汇总] {summary_path}")
@@ -152,6 +156,11 @@ def run_pipeline(
         )
         if verify_roster:
             event("名单核对", f"{exam.name}: 已核对")
+        strip_paths = build_personal_strips(exam, score, questions, results_cfg, config)
+        for strip_path in strip_paths:
+            print(f"[个人成绩单] {strip_path}")
+        if strip_paths:
+            event("个人成绩单", f"{exam.name}: {len(strip_paths)} 份")
         chart_paths = build_all_charts(exam, score, charts_cfg, config.output)
         for chart_path in chart_paths:
             print(f"[统计图] {chart_path}")
@@ -172,3 +181,36 @@ def run_pipeline(
     event("完成", f"总耗时 {elapsed:.1f}s")
     run_dir = write_run_info(config, events)
     print(f"[run-info] {run_dir}")
+
+
+def run_results(
+    config_path: str = "config/config.yaml",
+    semester: str | None = None,
+    exam_name: str | None = None,
+) -> None:
+    """单独命令：生成指定学期/考试的班级汇总与个人成绩单。"""
+    config = load_config(config_path)
+    results_cfg = load_results_config(config.results_config_dir)
+    semester = semester or config.current_semester
+    exams = list(config.exams)
+    if semester:
+        exams = [e for e in exams if e.semester == semester]
+    if exam_name:
+        exams = [e for e in exams if e.name == exam_name]
+    if not exams:
+        raise ValueError("筛选后无考试可生成成绩单")
+    for exam in exams:
+        if exam.name is None:
+            exam.name = resolve_exam_name(exam)
+        if not exam.name:
+            continue
+        score = read_score_summary(config.parsed_dir, exam, config.parsed_format)
+        questions = read_question_detail(
+            config.parsed_dir, exam, config.parsed_format
+        )
+        for p in build_class_summaries(
+            exam, score, questions, config, results_cfg
+        ):
+            print(f"[班级汇总] {p}")
+        for p in build_personal_strips(exam, score, questions, results_cfg, config):
+            print(f"[个人成绩单] {p}")

@@ -7,6 +7,7 @@ import pandas as pd
 
 from grade_analyzer.config import AnalysisConfig, ExamConfig, TeacherMap
 from grade_analyzer.report import _subjective_pivot, build_class_summaries
+from grade_analyzer.result_config import ResultsConfig
 
 
 def test_subjective_pivot():
@@ -26,7 +27,10 @@ def test_subjective_pivot():
 
 
 def test_build_class_summaries(tmp_path):
-    config = AnalysisConfig(parsed_dir=str(tmp_path / "parsed"))
+    config = AnalysisConfig(
+        parsed_dir=str(tmp_path / "parsed"),
+        results_dir=str(tmp_path / "results"),
+    )
     config.teacher_maps = {
         ("高一第二学期", "地理"): TeacherMap(
             subject="地理",
@@ -62,10 +66,12 @@ def test_build_class_summaries(tmp_path):
         }
     )
 
-    paths = build_class_summaries(exam, score, questions, config)
-    assert len(paths) == 1
+    paths = build_class_summaries(exam, score, questions, config, ResultsConfig())
+    assert len(paths) == 2  # 教师文件 + 全部班级汇总
     path = Path(paths[0])
     assert path.name == "测试_柯老师_班级成绩汇总.xlsx"
+    all_path = Path(paths[1])
+    assert all_path.name == "测试_全部班级_班级成绩汇总.xlsx"
 
     wb = openpyxl.load_workbook(path)
     assert set(wb.sheetnames) == {"高一10班", "高一11班"}

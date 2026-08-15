@@ -28,24 +28,25 @@ from .charts import (
     add_distribution_chart,
     add_trend_chart,
 )
+from pathlib import Path
+
 from .cleaning import collect_quality_issues
 from .config import AnalysisConfig, ExamConfig
 from .io_utils import write_excel_report
 from .outputs import reports_dir, statistics_excel_path
-from .storage import parsed_exam_dir
-
-_HEADER_FONT = XlFont(name="方正小标宋_GBK", size=12)
-_DATA_FONT = XlFont(name="宋体", size=11)
-_HEADER_ROW_HEIGHT = 20.0
-_DATA_BAR_COLOR = "67C487"  # 浅绿色
+from .result_config import ClassSummaryConfig, ResultsConfig
 
 
 def _table_border(
-    left: bool = True, right: bool = True, top: bool = True, bottom: bool = True
+    left: bool = True,
+    right: bool = True,
+    top: bool = True,
+    bottom: bool = True,
+    style: str = "thin",
 ) -> Border:
-    """默认细实线边框；某边 False 表示该边无线。"""
+    """细实线边框；某边 False 表示该边无线；样式可配置。"""
     def side(show: bool) -> Side | None:
-        return Side(style="thin") if show else None
+        return Side(style=style) if show else None
 
     return Border(left=side(left), right=side(right), top=side(top), bottom=side(bottom))
 
@@ -251,78 +252,95 @@ def _class_frame(
     return pd.DataFrame(data)
 
 
-def _append_average_rows(ws, frame: pd.DataFrame, n: int) -> None:
-    """末尾追加 平均(全班)/平均(前半)/平均(后半) 三行（序号+姓名合并单元格）。"""
+def _append_average_rows(
+    ws, frame: pd.DataFrame, n: int, cs: ClassSummaryConfig
+) -> None:
+    """末尾追加平均行（序号+姓名合并单元格），标签/小数位/前半口径来自配置。"""
     numeric_cols = [
         c for c in frame.columns if c not in ("序号", "姓名", "校次", "班次")
     ]
-    labels = ["平均(全班)", "平均(前半)", "平均(后半)"]
-    halves = [slice(0, n), slice(0, ceil(n / 2)), slice(ceil(n / 2), n)]
+    labels = list(cs.average_rows.labels)
+    front = ceil(n / 2) if cs.average_rows.half_ceil else n // 2
+    halves = [slice(0, n), slice(0, front), slice(front, n)]
+    avg_font = XlFont(
+        name=cs.fonts.average.name,
+        size=cs.fonts.average.size,
+        bold=cs.fonts.average.bold,
+    )
     start = len(frame) + 2
     for k, (label, sl) in enumerate(zip(labels, halves)):
         row = start + k
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
         label_cell = ws.cell(row=row, column=1, value=label)
-        label_cell.font = _DATA_FONT
+        label_cell.font = avg_font
         for col_name in numeric_cols:
             col_idx = frame.columns.get_loc(col_name) + 1
             avg = frame.iloc[sl][col_name].mean()
             cell = ws.cell(
                 row=row,
                 column=col_idx,
-                value=None if pd.isna(avg) else round(float(avg), 2),
+                value=None if pd.isna(avg) else round(float(avg), cs.average_rows.decimals),
             )
-            cell.font = _DATA_FONT
+            cell.font = avg_font
 
 
-def _apply_sheet_fonts(ws, frame: pd.DataFrame) -> None:
-    """表头：方正小标宋_GBK 12；数据：宋体 11（平均行同样宋体 11）。"""
+def _apply_sheet_fonts(ws, frame: pd.DataFrame, cs: ClassSummaryConfig) -> None:
+    """表头/数据字体来自配置。"""
+    header_font = XlFont(
+        name=cs.fonts.header.name, size=cs.fonts.header.size, bold=cs.fonts.header.bold
+    )
+    data_font = XlFont(
+        name=cs.fonts.data.name, size=cs.fonts.data.size, bold=cs.fonts.data.bold
+    )
     for cell in ws[1]:
-        cell.font = _HEADER_FONT
+        cell.font = header_font
     for row in ws.iter_rows(min_row=2, max_row=len(frame) + 1):
         for cell in row:
-            cell.font = _DATA_FONT
+            cell.font = data_font
 
 
-def _apply_column_widths(ws, frame: pd.DataFrame) -> None:
-    """列宽：序号6 姓名8 总分6 客观7 主观7 单选5 多选5，题目列 6，校次/班次 5。"""
+def _apply_column_widths(ws, frame: pd.DataFrame, cs: ClassSummaryConfig) -> None:
+    """列宽来自配置：前7列 / 题目列 / 末2列。"""
     n = len(frame.columns)
+    first7 = cs.column_widths.first7
+    last2 = cs.column_widths.last2
     widths = []
     for i in range(n):
         if i < 7:
-            widths.append([6, 8, 6, 7, 7, 5, 5][i])
+            widths.append(first7[i])
         elif i >= n - 2:
-            widths.append(5)
+            widths.append(last2[i - (n - 2)])
         else:
-            widths.append(6)
+            widths.append(cs.column_widths.question_cols)
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
 
-def _apply_alignment(ws, frame: pd.DataFrame) -> None:
-    """表头行上下左右居中、行高 20；平均行首格与总分列左右居中。"""
-    header_alignment = Alignment(horizontal="center", vertical="center")
+def _apply_alignment(ws, frame: pd.DataFrame, cs: ClassSummaryConfig) -> None:
+    """对齐来自配置：表头（center_center）、总分列、平均行首格。"""
+    header_align = cs.alignment.header
     for cell in ws[1]:
-        cell.alignment = header_alignment
-    ws.row_dimensions[1].height = _HEADER_ROW_HEIGHT
+        if header_align == "center_center":
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = cs.row_height.header
 
-    total_col = frame.columns.get_loc("总分") + 1
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-        for cell in row:
-            if cell.column == total_col:
-                cell.alignment = Alignment(horizontal="center")
+    if cs.alignment.total_col == "center":
+        total_col = frame.columns.get_loc("总分") + 1
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            for cell in row:
+                if cell.column == total_col:
+                    cell.alignment = Alignment(horizontal="center")
 
-    start = len(frame) + 2
-    for r in range(start, start + 3):
-        ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
+    if cs.alignment.average_label == "center":
+        start = len(frame) + 2
+        for r in range(start, start + 3):
+            ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
 
 
-def _apply_data_bars(ws, frame: pd.DataFrame) -> None:
-    """客观分/主观分/单选/多选及小题、大题列设置数据条（渐变浅绿）。
-
-    范围：表头之下到平均行之上（末行 = 倒数第 4 行）；
-    数据条最小值/最大值取该列范围内的实际最小值/最大值。
-    """
+def _apply_data_bars(ws, frame: pd.DataFrame, cs: ClassSummaryConfig) -> None:
+    """客观/主观/单选/多选及题目列数据条（启用与颜色来自配置）。"""
+    if not cs.data_bar.enabled:
+        return
     cols = list(frame.columns)
     start = cols.index("多选") + 1
     end = cols.index("校次")
@@ -336,14 +354,16 @@ def _apply_data_bars(ws, frame: pd.DataFrame) -> None:
             start_value=0,
             end_type="max",
             end_value=0,
-            color=_DATA_BAR_COLOR,
+            color=cs.data_bar.color,
             showValue=True,
         )
         ws.conditional_formatting.add(rng, rule)
 
 
-def _apply_table_borders(ws, frame: pd.DataFrame) -> None:
-    """表格默认细实线框线；单选|多选之间、同一大题的相邻小题之间取消竖框线。"""
+def _apply_table_borders(ws, frame: pd.DataFrame, cs: ClassSummaryConfig) -> None:
+    """表格框线来自配置；单选|多选与同大题小题去竖线可开关。"""
+    if not cs.borders.enabled:
+        return
     cols = list(frame.columns)
     n = len(cols)
     remove_left: set[int] = set()
@@ -353,14 +373,15 @@ def _apply_table_borders(ws, frame: pd.DataFrame) -> None:
         remove_right.add(a)
         remove_left.add(b)
 
-    boundary(cols.index("单选"), cols.index("多选"))
-
-    q_start = cols.index("多选") + 1
-    q_end = cols.index("校次")
-    sub_idx = [i for i in range(q_start, q_end) if "(" in cols[i]]
-    for a, b in zip(sub_idx, sub_idx[1:]):
-        if cols[a].split("(")[0] == cols[b].split("(")[0]:
-            boundary(a, b)
+    if cs.borders.remove_single_multi:
+        boundary(cols.index("单选"), cols.index("多选"))
+    if cs.borders.remove_same_big:
+        q_start = cols.index("多选") + 1
+        q_end = cols.index("校次")
+        sub_idx = [i for i in range(q_start, q_end) if "(" in cols[i]]
+        for a, b in zip(sub_idx, sub_idx[1:]):
+            if cols[a].split("(")[0] == cols[b].split("(")[0]:
+                boundary(a, b)
 
     for r in range(1, ws.max_row + 1):
         for i in range(n):
@@ -370,45 +391,57 @@ def _apply_table_borders(ws, frame: pd.DataFrame) -> None:
                 right=i not in remove_right,
                 top=True,
                 bottom=True,
+                style=cs.borders.style,
             )
 
 
-def _format_date_cn(date_str: str | None) -> str:
-    """日期转中文格式：2026-04-20 -> 2026年04月20日。"""
+def _format_date_cn(date_str: str | None, fmt: str = "%Y年%m月%d日") -> str:
+    """按格式转换日期：2026-04-20 -> 2026年04月20日。"""
     if not date_str:
         return ""
-    parts = str(date_str).split("-")
-    if len(parts) == 3:
-        return f"{parts[0]}年{parts[1]}月{parts[2]}日"
-    return str(date_str)
+    try:
+        from datetime import datetime
+
+        return datetime.strptime(str(date_str), "%Y-%m-%d").strftime(fmt)
+    except ValueError:
+        return str(date_str)
 
 
-def _write_teacher_summary(
+def _hf_font(fs) -> str | None:
+    """页眉页脚字体字符串（如 微软雅黑,bold）。"""
+    name = (fs.name or "").strip()
+    if not name:
+        return None
+    return f"{name},bold" if fs.bold else name
+
+
+def _write_class_summary_file(
     exam: ExamConfig,
-    teacher: str,
-    group: pd.DataFrame,
+    filename: str,
+    class_groups: list[tuple[str, pd.DataFrame]],
     wide: pd.DataFrame,
     big: pd.DataFrame,
     subj_cols: list[str],
     big_cols: list[str],
     exam_dir,
     grade_stats: dict,
+    cs: ClassSummaryConfig,
 ) -> str:
-    """同一教师所教班级写入一个 Excel，每班一个 sheet。"""
-    path = exam_dir / f"{exam.name}_{teacher}_班级成绩汇总.xlsx"
+    """一个班级汇总文件（每班一个 sheet）。"""
+    path = exam_dir / filename
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        for class_name, cls in group.groupby("class_name", sort=True):
+        for class_name, cls in class_groups:
             frame = _class_frame(cls, wide, big, subj_cols, big_cols)
             frame.to_excel(writer, sheet_name=str(class_name), index=False)
             ws = writer.sheets[str(class_name)]
-            _apply_sheet_fonts(ws, frame)
-            _append_average_rows(ws, frame, len(cls))
-            _apply_column_widths(ws, frame)
-            _apply_alignment(ws, frame)
-            _apply_data_bars(ws, frame)
-            _apply_table_borders(ws, frame)
+            _apply_sheet_fonts(ws, frame, cs)
+            _append_average_rows(ws, frame, len(cls), cs)
+            _apply_column_widths(ws, frame, cs)
+            _apply_alignment(ws, frame, cs)
+            _apply_data_bars(ws, frame, cs)
+            _apply_table_borders(ws, frame, cs)
             _set_header_footer(
-                ws, exam, str(class_name), cls["total_score"], grade_stats
+                ws, exam, str(class_name), cls["total_score"], grade_stats, cs
             )
     return str(path)
 
@@ -426,30 +459,34 @@ def _set_header_footer(
     class_name: str,
     totals: pd.Series,
     grade_stats: dict,
+    cs: ClassSummaryConfig,
 ) -> None:
     """设置 sheet 页眉（左=班级，中=考试名称，右=考试日期）与页脚（左右各两行）。"""
     ws.oddHeader.left.text = class_name
     ws.oddHeader.center.text = exam.name
-    ws.oddHeader.right.text = _format_date_cn(exam.date)
-    ws.oddHeader.left.font = "微软雅黑,bold"
-    ws.oddHeader.left.size = 20
-    ws.oddHeader.center.font = "方正小标宋_GBK"
-    ws.oddHeader.center.size = 20
-    ws.oddHeader.right.size = 14
-    ws.oddFooter.left.size = 12
+    ws.oddHeader.right.text = _format_date_cn(exam.date, cs.header.date_format)
+    ws.oddHeader.left.font = _hf_font(cs.header.left_font)
+    ws.oddHeader.left.size = cs.header.left_font.size
+    ws.oddHeader.center.font = _hf_font(cs.header.center_font)
+    ws.oddHeader.center.size = cs.header.center_font.size
+    ws.oddHeader.right.font = _hf_font(cs.header.right_font)
+    ws.oddHeader.right.size = cs.header.right_font.size
+    ws.oddFooter.left.size = cs.footer.left_font_size
 
     cls_mean = totals.mean()
     cls_median = totals.median()
     cls_std = totals.std()
+    colon = ":" if cs.footer.half_width else "："
+    lp, rp = ("(", ")") if cs.footer.half_width else ("（", "）")
     left_footer = (
-        f"班级平均分: {_fmt_stat(cls_mean)} (标准差: {_fmt_stat(cls_std)})\n"
-        f" 年级平均分: {_fmt_stat(grade_stats['grade_mean'])} "
-        f"({_fmt_stat(grade_stats['b_mean'])}|{_fmt_stat(grade_stats['a_mean'])})"
+        f"班级平均分{colon} {_fmt_stat(cls_mean)} {lp}标准差{colon} {_fmt_stat(cls_std)}{rp}\n"
+        f" 年级平均分{colon} {_fmt_stat(grade_stats['grade_mean'])} "
+        f"{lp}{_fmt_stat(grade_stats['b_mean'])}|{_fmt_stat(grade_stats['a_mean'])}{rp}"
     )
     right_footer = (
-        f"班级中位数: {_fmt_stat(cls_median)}\n"
-        f"({_fmt_stat(grade_stats['b_median'])}|{_fmt_stat(grade_stats['a_median'])}) "
-        f"年级中位数: {_fmt_stat(grade_stats['grade_median'])}"
+        f"班级中位数{colon} {_fmt_stat(cls_median)}\n"
+        f"{lp}{_fmt_stat(grade_stats['b_median'])}|{_fmt_stat(grade_stats['a_median'])}{rp} "
+        f"年级中位数{colon} {_fmt_stat(grade_stats['grade_median'])}"
     )
     ws.oddFooter.left.text = left_footer
     ws.oddFooter.right.text = right_footer
@@ -460,9 +497,10 @@ def build_class_summaries(
     score: pd.DataFrame,
     questions: pd.DataFrame,
     config: AnalysisConfig,
+    results_cfg: ResultsConfig,
     verify_roster: bool = False,
 ) -> list[str]:
-    """按任课教师生成班级成绩汇总 Excel，返回输出文件路径列表。
+    """按配置生成班级成绩汇总 Excel，返回输出文件路径列表。
 
     只保留有成绩的行；未配置教师的班级不生成（check 已 WARN）。
     """
@@ -496,16 +534,29 @@ def build_class_summaries(
         "b_median": _level_stat("B", "median", lambda s: s.median()),
         "a_median": _level_stat("A", "median", lambda s: s.median()),
     }
-    exam_dir = parsed_exam_dir(config.parsed_dir, exam)
+    cs = results_cfg.class_summary
+    exam_dir = Path(config.results_dir) / (exam.semester or "") / exam.name
     exam_dir.mkdir(parents=True, exist_ok=True)
     paths = []
-    for teacher, group in valid.groupby("teacher", sort=True):
-        if not teacher:
-            continue
+    if cs.group_by_teacher:
+        for teacher, group in valid.groupby("teacher", sort=True):
+            if not teacher:
+                continue
+            groups = [(cn, g) for cn, g in group.groupby("class_name", sort=True)]
+            paths.append(
+                _write_class_summary_file(
+                    exam, f"{exam.name}_{teacher}_班级成绩汇总.xlsx",
+                    groups, wide, big, subj_cols, big_cols,
+                    exam_dir, grade_stats, cs,
+                )
+            )
+    if cs.all_classes_summary:
+        groups = [(cn, g) for cn, g in valid.groupby("class_name", sort=True)]
         paths.append(
-            _write_teacher_summary(
-                exam, teacher, group, wide, big, subj_cols, big_cols,
-                exam_dir, grade_stats,
+            _write_class_summary_file(
+                exam, f"{exam.name}_全部班级_班级成绩汇总.xlsx",
+                groups, wide, big, subj_cols, big_cols,
+                exam_dir, grade_stats, cs,
             )
         )
     return paths

@@ -87,6 +87,11 @@ def check_exam(exam: ExamConfig, config: AnalysisConfig) -> dict:
         add_check("名称", "WARN", "无法解析考试名称，请手动指定 name")
     result["preview"]["名称"] = name
 
+    if exam.short_name:
+        add_check("考试简称", "PASS", exam.short_name)
+    else:
+        add_check("考试简称", "FAIL", "short_name 必填（个人成绩单内使用）")
+
     subject = exam.subject
     subject_source = "配置"
     if subject is None:

@@ -1,0 +1,89 @@
+# 成绩单（results）配置 —— 默认值全部显式列出
+
+# ==================== 个人成绩单 ====================
+personal:
+  scope:
+    mode: teacher              # teacher=按教师分组 / all=全部班级 / custom=自定义班级列表
+    teachers: [A]           # mode=teacher 时填写教师列表
+    classes: []            # mode=custom 时填写班级列表
+  sort_by_score_desc: true # 学生顺序：true=总分降序；false=班级->班次升序
+  single_sheet: true       # true=单 sheet 全部学生；false=每班一个 sheet
+  big_score_prefix: ""     # 大题总分列前缀（show_big_questions=true 时生效）
+  big_score_suffix: ""     # 大题总分列后缀
+  merged_prefix: "M"        # 合并模式大题列前缀（question_display=merged 时生效）
+  merged_suffix: ""        # 合并模式大题列后缀
+  bold_total_score: true   # 是否加粗总分值
+  layout:
+    blank_rows_between: 1  # 成绩条之间空行数
+    row_height: 20
+    column_widths:
+      first10: [10, 10, 10, 5, 6, 8, 6, 6, 6, 6]  # 前10固定列：班级/姓名/考试/班次/校次/总分/客观/主观/单选/多选
+      split_question_cols: 5               # 单独小题列宽
+      merged_question_cols: 8              # 合并小题列宽
+      big_question_cols: 4                 # 大题列宽
+    font:
+      header: {name: 宋体, size: 11, bold: false}
+      data: {name: 宋体, size: 11, bold: false}
+    alignment:
+      header: center_center
+      data_vertical: center
+      center_cols: [班级, 姓名, 考试, 班次, 校次, 总分]
+      right_from: 客观分
+    borders:
+      enabled: true
+      style: thin               # 正常框线
+      header_top_style: medium  # 每个成绩条表头上框线（略粗）
+  header_footer:
+    enabled: false         # 个人成绩单默认无页眉页脚
+    header: {left: "", center: "", right: ""}
+    footer: {left: "", center: "", right: ""}
+    fonts:
+      header_left: {name: 微软雅黑, size: 20, bold: true}
+      header_center: {name: 方正小标宋_GBK, size: 20, bold: false}
+      header_right: {name: "", size: 14, bold: false}
+      footer_left: {name: "", size: 12, bold: false}
+  print:
+    orientation: portrait
+    paper_size: A4
+    margin: {top: 0.5, bottom: 0.5, left: 0.5, right: 0.5}
+    fit_to_width: false
+
+# ==================== 班级成绩汇总 ====================
+class_summary:
+  group_by_teacher: true   # 按教师分文件
+  per_class_sheet: true    # 每班一个 sheet
+  all_classes_summary: true  # 额外生成包含所有班级的汇总表
+  header:
+    date_format: "%Y年%m月%d日"
+    left_font: {name: 微软雅黑, size: 20, bold: true}
+    center_font: {name: 方正小标宋_GBK, size: 20, bold: false}
+    right_font: {name: "", size: 14, bold: false}
+  footer:
+    left_font_size: 12
+    half_width: true       # 页脚是否用半角标点
+  fonts:
+    header: {name: 方正小标宋_GBK, size: 12, bold: false}
+    data: {name: 宋体, size: 11, bold: false}
+    average: {name: 宋体, size: 11, bold: false}
+  row_height:
+    header: 20
+  column_widths:
+    first7: [6, 8, 6, 7, 7, 5, 5]
+    question_cols: 6
+    last2: [5, 5]
+  alignment:
+    header: center_center
+    total_col: center
+    average_label: center
+  borders:
+    enabled: true
+    style: thin
+    remove_single_multi: true   # 单选|多选之间去竖线
+    remove_same_big: true       # 同一大题小题之间去竖线
+  data_bar:
+    enabled: true
+    color: 67C487
+  average_rows:
+    labels: [平均(全班), 平均(前半), 平均(后半)]
+    half_ceil: true
+    decimals: 2

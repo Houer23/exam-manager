@@ -13,6 +13,9 @@ analysis:
 
 # 统计图配置目录：config/charts/config.yaml（默认值已全部显式列出）
 charts_dir: config/charts
+# 成绩单输出目录（按学期归类）与成绩单配置目录
+results_dir: data/output/results
+results_config_dir: config/results
 
 # 常见科目词表（用于文件名识别）
 subjects:

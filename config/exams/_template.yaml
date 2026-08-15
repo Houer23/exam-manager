@@ -17,3 +17,6 @@ subjective_full_score: 50    # 留空 = 使用科目默认值；无默认时必�
 default_grade: ""            # 留空 = 使用全局默认年级（高一）
 sheet: ""                    # 留空 = 自动选择 sheet
 filter_by_selection: true    # 名单核对是否按七选三过滤：true=按选课过滤；false=按全部班级核对
+short_name: 限时练一          # 必填：考试简称（个人成绩单内使用）
+question_display: split      # 个人成绩单小题呈现：split=每小题一列；merged=按大题合并为 值|值|值
+show_big_questions: false    # 是否额外显示主观大题汇总分列

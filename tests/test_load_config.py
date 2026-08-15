@@ -144,6 +144,13 @@ def test_filter_by_selection_default_and_override(tmp_path):
     assert by_name["高一下乙"].filter_by_selection is False
 
 
+def test_short_name_parsed(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(exams_dir, "高一第一学期", "甲", name="甲", short_name="限时练一")
+    cfg = load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
+    assert cfg.exams[0].short_name == "限时练一"
+
+
 def test_joint_requires_name(tmp_path):
     exams_dir = tmp_path / "exams"
     _write_exam(exams_dir, "高一第一学期", "联考", format="joint")

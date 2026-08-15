@@ -18,7 +18,8 @@ _GLOBAL_KEYS = {
     "analysis", "subjects", "subject_aliases", "subject_defaults",
     "default_full_score", "default_grade", "current_semester",
     "current_exam", "default_school", "parsed_dir", "parsed_format",
-    "exams_dir", "classes_dir", "subjects_dir", "roster_dir", "charts_dir", "output",
+    "exams_dir", "classes_dir", "subjects_dir", "roster_dir", "charts_dir",
+    "results_dir", "results_config_dir", "output",
 }
 _ANALYSIS_KEYS = {"pass_ratio", "excellent_ratio", "absent_strategy", "score_bands"}
 _OUTPUT_KEYS = {"dir", "excel_name"}
@@ -26,6 +27,7 @@ _EXAM_KEYS = {
     "name", "format", "type", "importance", "folder", "file", "subject",
     "semester", "date", "full_score", "objective_full_score",
     "subjective_full_score", "default_grade", "sheet", "filter_by_selection",
+    "short_name", "question_display", "show_big_questions",
 }
 _SUBJECT_DEFAULT_KEYS = {"full_score", "objective_full_score", "subjective_full_score"}
 _CLASS_CONFIG_KEYS = {"level", "course"}
@@ -42,6 +44,7 @@ class ExamConfig:
 
     其余字段：
     - name：weekly 从文件名提取；联考需显式填写
+    - short_name：考试简称（个人成绩单内使用，必填，check 校验）
     - folder/file：原始成绩单所在文件夹与文件名（file 必填，folder 缺省 data/input）
     - semester：学期全称（如 高一第一学期），规范表按此分目录
     - date：考试日期（YYYY-MM-DD，缺省=程序运行当日），决定趋势顺序
@@ -65,6 +68,9 @@ class ExamConfig:
     default_grade: str | None = None
     sheet: str | None = None
     filter_by_selection: bool = True  # 名单核对是否按七选三过滤
+    short_name: str | None = None  # 考试简称（必填）
+    question_display: str = "split"  # 个人成绩单小题呈现：split=分列 / merged=合并
+    show_big_questions: bool = False  # 是否显示主观大题汇总分列
 
     def effective_importance(self) -> str:
         """返回重要度：显式指定优先，否则由格式推导。"""
@@ -132,6 +138,8 @@ class AnalysisConfig:
     subjects_dir: str = "config/subjects"
     roster_dir: str = "data/roster"
     charts_dir: str = "config/charts"
+    results_dir: str = "data/output/results"
+    results_config_dir: str = "config/results"
     output: OutputConfig = field(default_factory=OutputConfig)
     # 常见科目词表（用于文件名识别）
     subjects: list[str] = field(
@@ -266,6 +274,7 @@ def _load_exam_file(path: Path, folder_semester: str | None) -> ExamConfig:
     )
     default_grade = _clean(raw.get("default_grade"))
     sheet = _clean(raw.get("sheet"))
+    short_name = _clean(raw.get("short_name"))
     raw_fbs = raw.get("filter_by_selection", True)
     if isinstance(raw_fbs, str):
         filter_by_selection = raw_fbs.strip().lower() not in (
@@ -273,6 +282,16 @@ def _load_exam_file(path: Path, folder_semester: str | None) -> ExamConfig:
         )
     else:
         filter_by_selection = bool(raw_fbs)
+    question_display = str(raw.get("question_display", "split"))
+    if question_display not in {"split", "merged"}:
+        raise ValueError(f"{path}: question_display 应为 split/merged")
+    raw_sbq = raw.get("show_big_questions", False)
+    if isinstance(raw_sbq, str):
+        show_big_questions = raw_sbq.strip().lower() not in (
+            "", "false", "0", "no", "否",
+        )
+    else:
+        show_big_questions = bool(raw_sbq)
 
     if fmt == "joint" and not name:
         raise ValueError(f"{path}: 联考（joint）必须显式填写 name")
@@ -294,6 +313,9 @@ def _load_exam_file(path: Path, folder_semester: str | None) -> ExamConfig:
         default_grade=default_grade,
         sheet=sheet,
         filter_by_selection=filter_by_selection,
+        short_name=short_name,
+        question_display=question_display,
+        show_big_questions=show_big_questions,
     )
 
 
@@ -420,6 +442,8 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
         parsed_format=str(raw.get("parsed_format", "csv")),
         roster_dir=str(raw.get("roster_dir", "data/roster")),
         charts_dir=str(raw.get("charts_dir", "config/charts")),
+        results_dir=str(raw.get("results_dir", "data/output/results")),
+        results_config_dir=str(raw.get("results_config_dir", "config/results")),
         output=OutputConfig(
             dir=str(out_raw.get("dir", "data/output")),
             excel_name=str(out_raw.get("excel_name", "成绩分析汇总.xlsx")),

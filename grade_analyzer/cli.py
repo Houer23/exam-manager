@@ -170,6 +170,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_config_arg(check_p)
     check_p.add_argument("--semester", default=None, help="学期（缺省=当前学期）")
     check_p.add_argument("--exam", default=None, help="考试名称（缺省=全部）")
+
+    # ---------- results：成绩单生成 ----------
+    results_parser = subparsers.add_parser(
+        "results", help="生成班级成绩汇总与个人成绩单"
+    )
+    add_config_arg(results_parser)
+    results_parser.add_argument("--semester", default=None, help="学期（缺省=当前学期）")
+    results_parser.add_argument("--exam", default=None, help="考试名称（缺省=全部）")
     return parser
 
 
@@ -273,6 +281,10 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             run_roster_check(cfg, semester=args.semester, exam_name=args.exam)
+    elif args.command == "results":
+        from .pipeline import run_results
+
+        run_results(args.config, semester=args.semester, exam_name=args.exam)
     return 0
 
 

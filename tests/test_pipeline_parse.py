@@ -28,9 +28,16 @@ def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None):
         "parsed_dir": str(parsed_dir),
         "default_school": "青田中学",
         "output": {"dir": str(out_dir or tmp_path / "out"), "excel_name": "成绩分析汇总.xlsx"},
+        "results_dir": str((out_dir or tmp_path / "out") / "results"),
     }
     if roster_dir:
         data["roster_dir"] = str(roster_dir)
+    results_cfg_dir = tmp_path / "results_cfg"
+    results_cfg_dir.mkdir(exist_ok=True)
+    (results_cfg_dir / "config.yaml").write_text(
+        "personal:\n  scope:\n    mode: all\n", encoding="utf-8"
+    )
+    data["results_config_dir"] = str(results_cfg_dir)
     cfg.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     return str(cfg)
 
@@ -123,8 +130,10 @@ def test_run_pipeline_writes_report_and_statistics(tmp_path, capsys):
     assert (out / "merged" / "merged_long.csv").is_file()
     assert (out / "run-info" / "latest" / "运行日志.txt").is_file()
     assert (out / "quality" / "数据质量.xlsx").is_file()
-    summary = parsed / "高一第二学期" / "高一下周测" / "高一下周测_柯_班级成绩汇总.xlsx"
-    assert summary.is_file()
+    results = out / "results" / "高一第二学期"
+    assert (results / "高一下周测" / "高一下周测_柯_班级成绩汇总.xlsx").is_file()
+    assert (results / "高一下周测" / "高一下周测_全部班级_班级成绩汇总.xlsx").is_file()
+    assert list(results.glob("*_全部班级_个人成绩单.xlsx"))
 
     wb = openpyxl.load_workbook(stat)
     ws = wb["科目统计"]
