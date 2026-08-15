@@ -1,6 +1,7 @@
 """parse 流程的集成测试。"""
 
 import pandas as pd
+import pytest
 import yaml
 
 from grade_analyzer.config import load_config
@@ -144,3 +145,56 @@ def test_run_pipeline_writes_report_and_statistics(tmp_path, capsys):
     assert len(wb["班级对比"]._charts) == 1  # 内嵌条形图
     report_wb = openpyxl.load_workbook(report)
     assert len(report_wb["多场趋势"]._charts) == 1  # 内嵌折线图
+
+
+def test_run_results_exam_filter_with_unnamed_weekly(tmp_path, capsys):
+    """name 留空的周测：--exam 应能用文件名解析出的名称命中。"""
+    from grade_analyzer.pipeline import parse_exams, run_results
+
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    # 模拟真实周测：name 留空，考试名称从文件名提取
+    (tmp_path / "exams" / "高一第二学期" / "周测.yaml").write_text(
+        "name: ''\n"
+        "format: weekly\n"
+        "folder: data/input/测试样例\n"
+        "file: 【教学班报告--高一下地理限时练一】所有班级学生小题得分明细.xlsx\n"
+        "subject: 地理\n"
+        "full_score: 100\n"
+        "objective_full_score: 85\n"
+        "subjective_full_score: 15\n",
+        encoding="utf-8",
+    )
+
+    parse_exams(cfg_path)
+    run_results(cfg_path, exam_name="高一下地理限时练一")
+    out_text = capsys.readouterr().out
+    assert "[班级汇总]" in out_text
+    assert "[个人成绩单]" in out_text
+
+
+def test_run_pipeline_exam_filter(tmp_path, capsys):
+    """run --exam 只处理指定考试；未指定时含无规范表考试会失败。"""
+    from grade_analyzer.pipeline import run_pipeline
+
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    # 追加一场无规范表、原始文件也不存在的考试
+    (tmp_path / "exams" / "高一第二学期" / "缺考联考.yaml").write_text(
+        "name: 高一下缺考联考\n"
+        "format: joint\n"
+        "folder: data/input\n"
+        "file: 不存在.xlsx\n"
+        "subject: 地理\n",
+        encoding="utf-8",
+    )
+
+    run_pipeline(cfg_path, exam="高一下周测")
+    out_text = capsys.readouterr().out
+    assert "[统计] 高一下周测" in out_text
+    assert "高一下缺考联考" not in out_text
+
+    with pytest.raises(ValueError, match="未找到指定考试"):
+        run_pipeline(cfg_path, exam="不存在的考试")

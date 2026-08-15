@@ -74,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--exam",
         default=None,
-        help="指定当前场次考试名称（优先级高于全局 current_exam 与日期判断）",
+        help="限定本次 run 只处理指定考试（名称与 exam list 显示一致）",
     )
     run_parser.add_argument(
         "--reparse", action="store_true", help="忽略缓存强制重新解析"
@@ -141,9 +141,17 @@ def build_parser() -> argparse.ArgumentParser:
     remove_p.add_argument("name", help="考试名称")
     add_config_arg(remove_p)
 
-    list_p = exam_sub.add_parser("list", help="列出考试条目")
+    list_p = exam_sub.add_parser("list", help="列出考试条目及 check/results 可用性")
     add_config_arg(list_p)
     list_p.add_argument("--semester", default=None, help="限定学期")
+    list_p.add_argument(
+        "--checkable", action="store_true", help="只列出可执行 check 的场次（原始文件存在）"
+    )
+    list_p.add_argument(
+        "--results-ready",
+        action="store_true",
+        help="只列出可生成成绩单的场次（规范表有效）",
+    )
 
     # ---------- config：全局配置管理 ----------
     config_parser = subparsers.add_parser("config", help="全局配置管理")
@@ -257,7 +265,16 @@ def main(argv: list[str] | None = None) -> int:
         elif args.exam_command == "remove":
             remove_exam(args.config, name=args.name)
         elif args.exam_command == "list":
-            list_exams(args.config, semester=args.semester)
+            df = list_exams(
+                args.config,
+                semester=args.semester,
+                checkable=args.checkable,
+                results_ready=args.results_ready,
+            )
+            if df.empty:
+                print("（无符合条件的考试）")
+            else:
+                print(df.to_string(index=False))
     elif args.command == "config":
         from .config_ops import get_config_value, set_config_value
 

@@ -13,8 +13,8 @@ from __future__ import annotations
 import pandas as pd
 
 from .adapters.registry import auto_detect_format
-from .config import AnalysisConfig, ExamConfig, normalize_exam_name
-from .detect import detect_subject_from_filename, extract_exam_name_from_filename
+from .config import AnalysisConfig, ExamConfig
+from .detect import detect_subject_from_filename
 from .io_utils import read_raw_sheet
 from .quality import write_check_reports
 from .storage import read_score_summary
@@ -75,16 +75,10 @@ def check_exam(exam: ExamConfig, config: AnalysisConfig) -> dict:
     result["preview"]["格式"] = fmt
 
     name = exam.name
-    name_source = "配置"
-    if name is None:
-        extracted = extract_exam_name_from_filename(exam.full_path)
-        name = normalize_exam_name(extracted, exam.semester) if extracted else None
-        name_source = "文件名提取"
     if name:
-        exam.name = name  # 供规范表路径解析使用
-        add_check("名称", "PASS", f"{name}（来源：{name_source}）")
+        add_check("名称", "PASS", name)
     else:
-        add_check("名称", "WARN", "无法解析考试名称，请手动指定 name")
+        add_check("名称", "FAIL", "考试名称（name）必填，请在考试配置中填写")
     result["preview"]["名称"] = name
 
     if exam.short_name:

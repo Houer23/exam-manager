@@ -28,17 +28,27 @@ from .storage import read_question_detail, read_score_summary
 
 
 def parse_exams(
-    config_path: str = "config/config.yaml", reparse: bool = False
+    config_path: str = "config/config.yaml",
+    reparse: bool = False,
+    exam_name: str | None = None,
 ) -> None:
     """解析全部考试原始文件 -> 规范表落盘。
 
     复用策略：规范表已存在且原始文件未变（mtime）时复用缓存；
-    reparse=True 时忽略缓存强制重新解析。
+    reparse=True 时忽略缓存强制重新解析；
+    exam_name 指定时只解析该场考试（名称需与配置解析后一致）。
     """
     config = load_config(config_path)
-    for exam in config.exams:
+    exams = list(config.exams)
+    # 先解析考试名称（weekly 名称从文件名提取），否则 exam_name 无法命中
+    for exam in exams:
         if exam.name is None:
             exam.name = resolve_exam_name(exam)
+    if exam_name:
+        exams = [e for e in exams if e.name == exam_name]
+        if not exams:
+            raise ValueError(f"未找到指定考试: {exam_name}")
+    for exam in exams:
         if not exam.name:
             print(f"[失败] {exam.full_path}: 考试名称无法解析，请先运行 check")
             continue
@@ -124,11 +134,29 @@ def run_pipeline(
     charts_cfg = load_charts_config(config.charts_dir)
     results_cfg = load_results_config(config.results_config_dir)
 
+    # --exam：先解析名称再限定本次 run 只处理该场考试
+    if exam:
+        matched = None
+        for e in config.exams:
+            if e.name is None:
+                e.name = resolve_exam_name(e)
+            if e.name == exam:
+                matched = e
+                break
+        if matched is None:
+            raise ValueError(f"未找到指定考试: {exam}")
+        config.exams = [matched]
+        semester = None  # 显式指定考试后，不再按学期筛选
+    else:
+        for e in config.exams:
+            if e.name is None:
+                e.name = resolve_exam_name(e)
+
     def event(stage: str, msg: str) -> None:
         events.append((time.strftime("%H:%M:%S"), stage, msg))
 
     event("启动", f"run 开始（配置 {config_path}）")
-    parse_exams(config_path, reparse=reparse)
+    parse_exams(config_path, reparse=reparse, exam_name=exam)
     event("解析", "规范表解析/复用完成")
     long_df, wide_df, frames = merge_to_output(
         config,
@@ -193,6 +221,10 @@ def run_results(
     results_cfg = load_results_config(config.results_config_dir)
     semester = semester or config.current_semester
     exams = list(config.exams)
+    # 先解析考试名称（weekly 名称从文件名提取），否则 --exam 无法命中
+    for exam in exams:
+        if exam.name is None:
+            exam.name = resolve_exam_name(exam)
     if semester:
         exams = [e for e in exams if e.semester == semester]
     if exam_name:
@@ -200,8 +232,6 @@ def run_results(
     if not exams:
         raise ValueError("筛选后无考试可生成成绩单")
     for exam in exams:
-        if exam.name is None:
-            exam.name = resolve_exam_name(exam)
         if not exam.name:
             continue
         score = read_score_summary(config.parsed_dir, exam, config.parsed_format)

@@ -8,6 +8,14 @@ config get/set：全局配置管理（白名单 + 类型/范围校验）。
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pandas as pd
+
+from .config import AnalysisConfig, ExamConfig, load_config
+from .detect import resolve_exam_name
+from .storage import is_parsed_fresh, parsed_exam_dir
+
 # 全局配置可修改键白名单：键 -> 值类型（number/text）
 CONFIG_KEY_WHITELIST: dict[str, str] = {
     "pass_ratio": "number",
@@ -110,9 +118,71 @@ def remove_exam(config_path: str, name: str) -> None:
     raise NotImplementedError("exam remove 将在后续实现")
 
 
-def list_exams(config_path: str, semester: str | None = None) -> None:
-    """列出考试条目（名称/学期/格式/类型/日期/满分）。"""
-    raise NotImplementedError("exam list 将在后续实现")
+def _parsed_status(config: AnalysisConfig, exam: ExamConfig) -> str:
+    """返回成绩单可用状态：已解析 / 已过期 / 未解析。"""
+    if not exam.name:
+        return "未解析"
+    fmt = config.parsed_format
+    exam_dir = parsed_exam_dir(config.parsed_dir, exam)
+    score_file = exam_dir / f"score_summary.{fmt}"
+    question_file = exam_dir / f"question_detail.{fmt}"
+    if not score_file.is_file() and not question_file.is_file():
+        return "未解析"
+    if is_parsed_fresh(config.parsed_dir, exam, fmt):
+        return "已解析"
+    return "已过期"
+
+
+def list_exams(
+    config_path: str,
+    semester: str | None = None,
+    checkable: bool = False,
+    results_ready: bool = False,
+) -> pd.DataFrame:
+    """列出考试条目及 check/results 可用性状态。
+
+    - 检查列：原始成绩文件是否存在（可执行 check 的前提）；
+    - 成绩单列：规范表是否已生成且有效（可执行 results 的前提）；
+    - checkable=True 时只保留原始文件存在的场次；
+    - results_ready=True 时只保留规范表有效的场次。
+
+    返回 DataFrame，由调用方打印。
+    """
+    config = load_config(config_path)
+    rows = []
+    for exam in config.exams:
+        if semester and exam.semester != semester:
+            continue
+        if exam.name is None:
+            exam.name = resolve_exam_name(exam)
+        raw_exists = Path(exam.full_path).is_file()
+        status = _parsed_status(config, exam)
+        if checkable and not raw_exists:
+            continue
+        if results_ready and status != "已解析":
+            continue
+        defaults = config.defaults_for(exam.subject) if exam.subject else None
+        full_score = exam.full_score or (defaults.full_score if defaults else None)
+        rows.append(
+            {
+                "考试名称": exam.name or "",
+                "学期": exam.semester or "",
+                "考试类型": exam.type,
+                "格式": exam.format or "",
+                "科目": exam.subject or "",
+                "日期": exam.date or "",
+                "满分": "" if full_score is None else f"{full_score:g}",
+                "检查": "可检查" if raw_exists else "文件缺失",
+                "成绩单": status,
+            }
+        )
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "考试名称", "学期", "考试类型", "格式", "科目", "日期",
+            "满分", "检查", "成绩单",
+        ],
+    )
 
 
 def get_config_value(config_path: str, key: str) -> None:
