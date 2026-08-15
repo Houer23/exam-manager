@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import time
+
 from .adapters.registry import auto_detect_format, get_adapter
 from .cleaning import (
     add_question_type_scores,
     clean_score_table,
     classify_objective_types,
+    collect_quality_issues,
     filter_default_school,
 )
 from .consolidate import merge_to_output
@@ -15,6 +18,8 @@ from .detect import detect_subject_from_filename, resolve_exam_name
 from .io_utils import read_raw_sheet
 from .storage import is_parsed_fresh, write_parsed_tables
 from .report import build_class_summaries, build_exam_statistics, build_report
+from .quality import write_quality_excel
+from .run_info import write_run_info
 from .storage import read_question_detail
 
 
@@ -110,22 +115,52 @@ def run_pipeline(
     3. 每场统计工作簿 + 跨场 Excel 汇总报告。
     """
     config = load_config(config_path)
+    start = time.time()
+    events: list[tuple[str, str, str]] = []
+
+    def event(stage: str, msg: str) -> None:
+        events.append((time.strftime("%H:%M:%S"), stage, msg))
+
+    event("启动", f"run 开始（配置 {config_path}）")
     parse_exams(config_path, reparse=reparse)
-    long_df, _wide_df, frames = merge_to_output(
+    event("解析", "规范表解析/复用完成")
+    long_df, wide_df, frames = merge_to_output(
         config,
         semester=semester,
         types=types,
         baseline_exams=baseline_exams,
     )
+    event("合并", f"合并 {len(frames)} 场考试，{len(wide_df)} 名学生")
     for exam, score in frames:
         path = build_exam_statistics(exam, score, config)
+        event("统计", f"{exam.name}: {path}")
         print(f"[统计] {exam.name}: {path}")
         questions = read_question_detail(
             config.parsed_dir, exam, config.parsed_format
         )
-        for summary_path in build_class_summaries(
+        summary_paths = build_class_summaries(
             exam, score, questions, config, verify_roster=verify_roster
-        ):
+        )
+        for summary_path in summary_paths:
             print(f"[班级汇总] {summary_path}")
+        event(
+            "班级汇总",
+            f"{exam.name}: {len(summary_paths)} 个教师汇总文件",
+        )
+        if verify_roster:
+            event("名单核对", f"{exam.name}: 已核对")
     report_path = build_report(config, long_df, frames)
+    event("报告", report_path)
     print(f"[报告] {report_path}")
+    quality_sheets = {
+        exam.name: collect_quality_issues(score, exam, config)
+        for exam, score in frames
+    }
+    quality_path = write_quality_excel(config, quality_sheets)
+    if quality_path:
+        event("质量", quality_path)
+        print(f"[质量] {quality_path}")
+    elapsed = time.time() - start
+    event("完成", f"总耗时 {elapsed:.1f}s")
+    run_dir = write_run_info(config, events)
+    print(f"[run-info] {run_dir}")

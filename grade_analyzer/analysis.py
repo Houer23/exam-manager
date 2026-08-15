@@ -9,6 +9,25 @@ from __future__ import annotations
 import pandas as pd
 
 
+ZH_COLUMNS = {
+    "exam_name": "考试名称",
+    "student_id": "考号",
+    "name": "姓名",
+    "class_name": "班级",
+    "class_level": "学情层次",
+    "teacher": "教师",
+    "course": "选科组合",
+    "subject": "科目",
+    "total_score": "总分",
+    "total_ratio": "得分率",
+}
+
+
+def zh_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """把英文变量名列名替换为中文列名。"""
+    return df.rename(columns=ZH_COLUMNS)
+
+
 def compute_subject_stats(df: pd.DataFrame, config) -> pd.DataFrame:
     """每场考试 × 每科：考生数、平均分、最高/最低、标准差、及格率、优秀率。"""
     rows = []
@@ -145,7 +164,7 @@ def compute_rankings(score_df: pd.DataFrame) -> pd.DataFrame:
         ]
         if c in df.columns
     ]
-    return df[cols].reset_index(drop=True)
+    return zh_columns(df[cols].reset_index(drop=True))
 
 
 def compute_average_rankings(long_df: pd.DataFrame) -> pd.DataFrame:
@@ -193,15 +212,17 @@ def compute_group_comparison(
         )
         rows.append(item)
     result = pd.DataFrame(rows)
-    result = result.rename(columns={"exam_name": "考试名称"})
     if result.empty:
         return result
-    rank_keys = ["考试名称"] + (list(group_cols[:-1]) if len(group_cols) > 1 else [])
+    rank_keys = ["exam_name"] + (list(group_cols[:-1]) if len(group_cols) > 1 else [])
     result["组内排名"] = result.groupby(rank_keys)["平均得分率"].rank(
         method="min", ascending=False
     )
+    result = zh_columns(result)
     sort_cols = ["考试名称"] + (
-        list(group_cols[:-1]) if len(group_cols) > 1 else []
+        [ZH_COLUMNS.get(c, c) for c in group_cols[:-1]]
+        if len(group_cols) > 1
+        else []
     ) + ["组内排名"]
     result = result.sort_values(sort_cols).reset_index(drop=True)
     return result

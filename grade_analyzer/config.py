@@ -168,6 +168,7 @@ class AnalysisConfig:
     excellent_ratio: float = 0.85
     absent_strategy: str = "exclude"
     score_bands: list[float] = field(default_factory=lambda: [0.9, 0.8, 0.7, 0.6])
+    exams: list[ExamConfig] = field(default_factory=list)
     # 运行时加载的元数据配置（不在 YAML 中配置）
     class_infos: dict[tuple[str, str], ClassInfo] = field(default_factory=dict)
     teacher_maps: dict[tuple[str, str], TeacherMap] = field(default_factory=dict)

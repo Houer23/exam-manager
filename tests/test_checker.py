@@ -57,6 +57,7 @@ def test_run_check_missing_file_reports_problem(tmp_path, capsys):
             {
                 "subjects": ["语文", "数学", "外语", "物理", "化学", "生物", "政治", "历史", "地理", "技术"],
                 "exams_dir": str(exams_dir),
+                "output": {"dir": str(tmp_path / "out")},
             },
             allow_unicode=True,
         ),

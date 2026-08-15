@@ -16,6 +16,7 @@ from .adapters.registry import auto_detect_format
 from .config import AnalysisConfig, ExamConfig, normalize_exam_name
 from .detect import detect_subject_from_filename, extract_exam_name_from_filename
 from .io_utils import read_raw_sheet
+from .quality import write_check_reports
 from .storage import read_score_summary
 
 
@@ -164,13 +165,17 @@ def _metadata_coverage_checks(
 def run_check(config: AnalysisConfig) -> int:
     """对所有考试条目执行 check，打印识别预览与校验清单，返回有 FAIL 的场次数。"""
     problems = 0
+    checks_by_exam: dict[str, list[tuple[str, str, str]]] = {}
     for exam in config.exams:
         result = check_exam(exam, config)
         name = result["preview"].get("名称") or "（未命名）"
         print(f"=== 检查: {name} ===")
         for check_name, status, detail in result["checks"]:
             print(f"  {check_name}: {detail}  [{status}]")
+        checks_by_exam[name] = result["checks"]
         if any(status == "FAIL" for _, status, _ in result["checks"]):
             problems += 1
+    for path in write_check_reports(config, checks_by_exam):
+        print(f"[质量] {path}")
     print(f"=== 汇总: {len(config.exams)} 场检查, {problems} 场有问题 ===")
     return problems

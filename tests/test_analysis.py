@@ -113,8 +113,8 @@ def test_distribution_bottom_merges_when_small():
 def test_rankings_single_exam():
     score = _long_df()[_long_df()["exam_name"] == "期中"]
     ranked = compute_rankings(score)
-    assert ranked["total_score"].iloc[0] == 90.0
-    assert ranked["student_id"].iloc[0] == "S2"
+    assert ranked["总分"].iloc[0] == 90.0
+    assert ranked["考号"].iloc[0] == "S2"
 
 
 def test_average_rankings():
@@ -130,7 +130,7 @@ def test_group_comparison_within_level_rank():
     comp = compute_group_comparison(
         _long_df(), ["class_level", "class_name"], _config()
     )
-    mid = comp[(comp["考试名称"] == "期中") & (comp["class_level"] == "A")]
+    mid = comp[(comp["考试名称"] == "期中") & (comp["学情层次"] == "A")]
     assert len(mid) == 1  # 只有高一10班是 A 层
     assert mid.iloc[0]["组内排名"] == 1
     assert mid.iloc[0]["考生数"] == 2

@@ -10,6 +10,7 @@ from __future__ import annotations
 from math import ceil
 
 import pandas as pd
+from openpyxl import load_workbook
 from openpyxl.formatting.rule import DataBarRule
 from openpyxl.styles import Alignment, Border, Font as XlFont, Side
 from openpyxl.utils import get_column_letter
@@ -21,6 +22,11 @@ from .analysis import (
     compute_rankings,
     compute_subject_stats,
     compute_trends,
+)
+from .charts import (
+    add_comparison_chart,
+    add_distribution_chart,
+    add_trend_chart,
 )
 from .cleaning import collect_quality_issues
 from .config import AnalysisConfig, ExamConfig
@@ -46,9 +52,9 @@ def _table_border(
 _RATIO_COLUMNS = {
     "total_ratio", "平均得分率", "及格率", "优秀率", "占比",
     "正向累计占比", "逆向累计占比",
-    "本次得分率", "上次得分率", "得分率变化",
+    "本次得分率", "上次得分率", "得分率变化", "得分率",
 }
-_SCORE_COLUMNS = {"total_score", "平均分", "最高分", "最低分", "标准差"}
+_SCORE_COLUMNS = {"total_score", "总分", "平均分", "最高分", "最低分", "标准差"}
 
 
 def _sheet_formats(df: pd.DataFrame) -> dict[str, str]:
@@ -93,7 +99,24 @@ def build_exam_statistics(
     path = statistics_excel_path(config.output, exam.semester, exam.name)
     sheets = _stat_sheets(score, config)
     write_excel_report(sheets, str(path), _formats_for(sheets))
+    _embed_stat_charts(str(path), sheets)
     return str(path)
+
+
+def _embed_stat_charts(path: str, sheets: dict[str, pd.DataFrame]) -> None:
+    """每场统计工作簿内嵌：分数段柱状 + 班级对比 + 教师对比。"""
+    wb = load_workbook(path)
+    if "分数段分布" in wb.sheetnames:
+        add_distribution_chart(wb["分数段分布"], sheets["分数段分布"])
+    if "班级对比" in wb.sheetnames:
+        add_comparison_chart(
+            wb["班级对比"], sheets["班级对比"], "班级", anchor="K2"
+        )
+    if "教师对比" in wb.sheetnames:
+        add_comparison_chart(
+            wb["教师对比"], sheets["教师对比"], "教师", anchor="J2"
+        )
+    wb.save(path)
 
 
 def build_report(
@@ -126,7 +149,16 @@ def build_report(
     )
     path = reports_dir(config.output) / semester / "成绩分析汇总.xlsx"
     write_excel_report(sheets, str(path), _formats_for(sheets))
+    _embed_report_charts(str(path), sheets)
     return str(path)
+
+
+def _embed_report_charts(path: str, sheets: dict[str, pd.DataFrame]) -> None:
+    """汇总报告内嵌：多场趋势折线图。"""
+    wb = load_workbook(path)
+    if "多场趋势" in wb.sheetnames:
+        add_trend_chart(wb["多场趋势"], sheets["多场趋势"])
+    wb.save(path)
 
 
 def _config_snapshot(config: AnalysisConfig) -> pd.DataFrame:

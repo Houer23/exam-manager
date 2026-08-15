@@ -121,6 +121,8 @@ def test_run_pipeline_writes_report_and_statistics(tmp_path, capsys):
     sheets = pd.read_excel(stat, sheet_name=None)
     assert set(sheets) == {"科目统计", "分数段分布", "个人排名", "班级对比", "教师对比"}
     assert (out / "merged" / "merged_long.csv").is_file()
+    assert (out / "run-info" / "latest" / "运行日志.txt").is_file()
+    assert (out / "quality" / "数据质量.xlsx").is_file()
     summary = parsed / "高一第二学期" / "高一下周测" / "高一下周测_柯_班级成绩汇总.xlsx"
     assert summary.is_file()
 
@@ -129,3 +131,7 @@ def test_run_pipeline_writes_report_and_statistics(tmp_path, capsys):
     header = {cell.value: cell.column for cell in ws[1] if cell.value}
     assert ws.cell(row=2, column=header["平均分"]).number_format == "0.0"
     assert ws.cell(row=2, column=header["及格率"]).number_format == "0.00%"
+    assert len(wb["分数段分布"]._charts) == 1  # 内嵌柱状图
+    assert len(wb["班级对比"]._charts) == 1  # 内嵌条形图
+    report_wb = openpyxl.load_workbook(report)
+    assert len(report_wb["多场趋势"]._charts) == 1  # 内嵌折线图
