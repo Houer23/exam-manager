@@ -183,3 +183,57 @@ def test_strip_widths_and_bold(tmp_path):
     assert ws.column_dimensions[chr(64 + sub_idx)].width == 4  # 单独小题列宽
     assert ws.cell(2, 6).font.bold is True  # 总分加粗
     assert ws.cell(2, 1).font.bold is False
+
+
+def _exam2() -> ExamConfig:
+    return ExamConfig(
+        name="高一下地理限时练一",
+        short_name="限时练一",
+        semester="高一第二学期",
+        subject="地理",
+        date="2026-03-25",
+        full_score=100.0,
+    )
+
+
+def _score2() -> pd.DataFrame:
+    # 第二场：S1、S2 参加（S3、S4 未参加）
+    df = _score().copy()
+    df = df[df["student_id"].isin(["S1", "S2"])]
+    df["total_score"] = [85.0, 65.0]
+    df["班次"] = [1, 2]
+    df["校次"] = [1, 6]
+    return df
+
+
+def test_build_merged_personal_strips(tmp_path):
+    import openpyxl
+
+    from grade_analyzer.personal_strip import build_merged_personal_strips
+
+    paths = build_merged_personal_strips(
+        [_exam(), _exam2()],
+        [_score(), _score2()],
+        [_questions(), _questions()],
+        ResultsConfig(),
+        _config(tmp_path),
+    )
+    assert len(paths) == 1
+    assert paths[0].endswith("20260325-20260420_全部班级_个人成绩单.xlsx")
+
+    ws = openpyxl.load_workbook(paths[0])["个人成绩单"]
+    header = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+    assert header == [
+        "班级", "姓名", "考试", "班次", "校次",
+        "总分", "客观分", "主观分", "单选", "多选", "主观题",
+    ]
+    # 排序：班级10 中 S1 平均分 82.5 > S2 67.5 → S1 块在前
+    assert ws.cell(1, 1).value == "班级"  # S1 的表头
+    assert ws.cell(2, 3).value == "联考"  # S1 第 1 场（2026-04-20）
+    assert ws.cell(2, 6).value == 80.0
+    assert ws.cell(3, 3).value == "限时练一"  # S1 第 2 场
+    assert ws.cell(3, 6).value == 85.0
+    assert ws.cell(2, 11).value == "5"  # 主观大题 26 得分（3+2）合并
+    # S1 块：表头 + 2 行 + 空行(blank_rows_between=1)；S2 块从第 5 行开始
+    assert ws.cell(5, 1).value == "班级"
+    assert ws.cell(6, 3).value == "联考"

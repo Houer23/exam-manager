@@ -85,31 +85,52 @@ def merge_score_tables(
     return long_df, wide.reset_index()
 
 
-def resolve_current_exam(
-    exams: list[ExamConfig],
-    explicit: str | None,
-    config: AnalysisConfig,
-) -> ExamConfig:
-    """确定当前场次考试。
+def sort_exams_by_date(exams: list[ExamConfig]) -> list[ExamConfig]:
+    """按考试日期升序排序（同日期保持配置列表顺序），用于场次编号。"""
+    return [
+        exam
+        for _, exam in sorted(
+            enumerate(exams), key=lambda pair: (pair[1].date or "", pair[0])
+        )
+    ]
 
-    优先级：CLI --exam（explicit）> 全局 current_exam > 范围内 date 最大。
-    - 显式指定的名称在范围内不存在时抛出 ValueError；
-    - date 相同时取列表顺序靠后的考试；
-    - date 缺省值在配置加载阶段已填为程序运行当日。
+
+def resolve_exam_by_index(
+    exams: list[ExamConfig], index: int
+) -> ExamConfig:
+    """按序号取考试：1-n 按日期升序；0=第一场；负数=倒数第 |index| 场。
+
+    边界：正数过大取最后一场；负数绝对值过大取第一场。
     """
-    name = explicit or config.current_exam
-    if name:
-        for exam in exams:
-            if exam.name == name:
-                return exam
-        raise ValueError(f"当前场次未找到: {name}")
     if not exams:
-        raise ValueError("无可用考试，无法确定当前场次")
-    best = exams[0]
-    for exam in exams[1:]:
-        if (exam.date or "") >= (best.date or ""):
-            best = exam
-    return best
+        raise ValueError("无可用考试，无法按序号选择当前场次")
+    ordered = sort_exams_by_date(exams)
+    n = len(ordered)
+    if index > 0:
+        pos = min(index, n) - 1
+    elif index == 0:
+        pos = 0
+    else:
+        pos = max(n + index, 0)
+    return ordered[pos]
+
+
+def describe_exam_list(exams: list[ExamConfig]) -> list[str]:
+    """生成带序号（按日期升序）的考试列表文本，供 run/results 提示使用。"""
+    return [
+        f"{i}. {exam.name or ''}（{exam.date or ''}）"
+        for i, exam in enumerate(sort_exams_by_date(exams), 1)
+    ]
+
+
+def date_range_suffix(exams: list[ExamConfig]) -> str:
+    """考试列表的日期范围标注：最早-最晚（YYYYMMDD，短横线）；单场返回该场日期。"""
+    dates = sorted(e.date or "" for e in exams)
+    if not dates or not dates[0]:
+        return ""
+    if len(dates) == 1:
+        return dates[0].replace("-", "")
+    return f"{dates[0].replace('-', '')}-{dates[-1].replace('-', '')}"
 
 
 def run_merge(
@@ -130,8 +151,12 @@ def run_merge(
     )
     print(f"[完成] 合并 {len(frames)} 场考试，{len(wide_df)} 名学生")
     out_dir = merged_dir(config.output)
-    print(f"  长表: {out_dir / 'merged_long.csv'}")
-    print(f"  宽表: {out_dir / 'merged_wide.csv'}")
+    if len(frames) >= 2:
+        suffix = date_range_suffix([e for e, _ in frames])
+        print(f"  长表: {out_dir / f'merged_long_{suffix}.csv'}")
+        print(f"  宽表: {out_dir / f'merged_wide_{suffix}.csv'}")
+    else:
+        print("[提示] 单场考试，跳过合并落盘")
 
 
 def merge_to_output(
@@ -171,10 +196,13 @@ def merge_to_output(
     frames = load_score_tables(selected, config)
     long_df, wide_df = merge_score_tables(frames)
 
-    out_dir = merged_dir(config.output)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    long_path = out_dir / "merged_long.csv"
-    wide_path = out_dir / "merged_wide.csv"
-    write_parsed_table(long_df, str(long_path), config.parsed_format)
-    write_parsed_table(wide_df, str(wide_path), config.parsed_format)
+    # 单场考试不做 merge 落盘（长表即 score_summary 本身，已在 data/parsed 保存）
+    if len(selected) >= 2:
+        out_dir = merged_dir(config.output)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        suffix = date_range_suffix(selected)
+        long_path = out_dir / f"merged_long_{suffix}.csv"
+        wide_path = out_dir / f"merged_wide_{suffix}.csv"
+        write_parsed_table(long_df, str(long_path), config.parsed_format)
+        write_parsed_table(wide_df, str(wide_path), config.parsed_format)
     return long_df, wide_df, frames

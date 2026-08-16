@@ -55,9 +55,9 @@ parsed_dir: data/parsed
 parsed_format: csv
 # run/merge 默认合并的学期（当前学期），命令行 --semester 可覆盖
 current_semester: 高一第二学期
-# 当前场次：留空 = 自动取筛选范围内 date 最大的考试；
-# 显式填写考试名称时优先；命令行 --exam 优先级最高
-current_exam: ""
+# 当前场次序号列表（整数，逗号分隔）：1-n 按日期升序编号，0=第一场，负数=倒数第 |k| 场；
+# 留空 = 处理全部考试；命令行 --exam（名称或序号列表）优先级最高
+current_exam: ''
 
 # 考试条目目录：每场考试一个 yaml 文件（下划线开头的文件会被忽略，如模板）
 # 可按学期建子文件夹，子文件夹名作为该文件夹内条目的默认 semester；

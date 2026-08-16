@@ -178,7 +178,7 @@ class AnalysisConfig:
     default_grade: str = "高一"
     default_school: str | None = None  # 原始表无学校列时填充到规范表
     current_semester: str | None = None  # run/merge 默认按当前学期
-    current_exam: str | None = None  # 当前场次（留空=范围内 date 最大；CLI --exam 优先）
+    current_exam: list[int] | None = None  # 场次序号列表（1-n 按日期升序；0=第一场；负数=倒数；空=全部）
     pass_ratio: float = 0.6
     excellent_ratio: float = 0.85
     absent_strategy: str = "exclude"
@@ -398,6 +398,28 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
     if any(not (0 < v <= 1) for v in score_bands):
         raise ValueError(f"{cfg_path}: score_bands 值应在 (0,1] 之间")
 
+    raw_current_exam = _clean(raw.get("current_exam"))
+    current_exam: list[int] | None = None
+    if raw_current_exam is not None:
+        if isinstance(raw_current_exam, (list, tuple)):
+            parts = [str(v).strip() for v in raw_current_exam]
+        else:
+            parts = [p.strip() for p in str(raw_current_exam).split(",")]
+        parsed: list[int] = []
+        for part in parts:
+            if part == "":
+                continue
+            try:
+                parsed.append(int(part))
+            except ValueError:
+                raise ValueError(
+                    f"{cfg_path}: current_exam 应为整数列表"
+                    f"（1-n 按日期升序；0=第一场；负数=倒数；逗号分隔），"
+                    f"当前为 {raw_current_exam!r}"
+                )
+        if parsed:
+            current_exam = parsed
+
     subjects_raw = raw.get("subjects")
     if not isinstance(subjects_raw, list) or not subjects_raw:
         raise ValueError(f"{cfg_path}: subjects 应为非空列表")
@@ -475,7 +497,7 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
         default_grade=str(raw.get("default_grade", "高一")) or "高一",
         default_school=_clean(raw.get("default_school")),
         current_semester=_clean(raw.get("current_semester")),
-        current_exam=_clean(raw.get("current_exam")),
+        current_exam=current_exam,
         pass_ratio=pass_ratio,
         excellent_ratio=excellent_ratio,
         absent_strategy=absent_strategy,

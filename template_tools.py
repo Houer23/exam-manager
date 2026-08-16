@@ -120,6 +120,8 @@ default_school: 示例中学
 parsed_dir: data/parsed
 parsed_format: csv
 current_semester: 高一第二学期
+# 当前场次序号列表（整数，逗号分隔）：1-n 按日期升序编号，0=第一场，负数=倒数第 |k| 场；
+# 留空 = 处理全部考试；命令行 --exam（名称或序号列表）优先级最高
 current_exam: ""
 
 # 目录配置

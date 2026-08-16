@@ -15,10 +15,15 @@ from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 
 from .config import AnalysisConfig, ExamConfig
+from .consolidate import date_range_suffix
 from .report import _display_qid, _subjective_pivot
 from .result_config import ResultsConfig
 
 _PAPER_SIZE = {"A4": 9, "A3": 8, "Letter": 1}
+_MERGED_COLS = [
+    "班级", "姓名", "考试", "班次", "校次",
+    "总分", "客观分", "主观分", "单选", "多选", "主观题",
+]
 
 
 def _teacher_sets(config: AnalysisConfig, exam: ExamConfig) -> dict[str, set[str]]:
@@ -174,7 +179,12 @@ def _write_strip_file(
 
 
 def _write_sheet(
-    ws, cols: list[str], rows: list[list[object]], widths: list[float], cfg: ResultsConfig
+    ws,
+    cols: list[str],
+    rows: list[list[object]],
+    widths: list[float],
+    cfg: ResultsConfig,
+    header_rows: set[int] | None = None,
 ) -> None:
     lay = cfg.personal.layout
     for row in rows:
@@ -201,9 +211,13 @@ def _write_sheet(
     center_cols = set(lay.alignment["center_cols"])
     block = 2 + lay.blank_rows_between
     for r in range(1, ws.max_row + 1):
-        pos = (r - 1) % block
-        is_header = pos == 0
-        is_data = pos == 1
+        if header_rows is None:
+            pos = (r - 1) % block
+            is_header = pos == 0
+            is_data = pos == 1
+        else:
+            is_header = r in header_rows
+            is_data = not is_header and any(c.value is not None for c in ws[r])
         for cidx, cell in enumerate(ws[r], start=1):
             if is_header:
                 cell.font = header_font
@@ -310,3 +324,160 @@ def build_personal_strips(
             )
         )
     return paths
+
+
+def build_merged_personal_strips(
+    exams: list[ExamConfig],
+    scores: list[pd.DataFrame],
+    questions_list: list[pd.DataFrame],
+    cfg: ResultsConfig,
+    config: AnalysisConfig,
+) -> list[str]:
+    """多场个人成绩单合并：每个学生一个表头，每场考试一行。
+
+    列固定：班级/姓名/考试/班次/校次/总分/客观分/主观分/单选/多选/主观题；
+    主观题列为该场各大题得分合并字符串（竖线分隔）。仅多场（>=2）时生成。
+    """
+    if not exams or len(exams) < 2:
+        return []
+    valid_list = [s[s["total_score"].notna()].copy() for s in scores]
+    all_classes: set[str] = set()
+    for v in valid_list:
+        all_classes |= set(v["class_name"])
+    teacher_sets = _teacher_sets(config, exams[0])
+
+    tasks: list[tuple[str, set[str]]] = []
+    scope = cfg.personal.scope
+    if scope.mode == "teacher":
+        tm = config.teacher_maps.get((exams[0].semester, exams[0].subject))
+        teacher_names = tm.teacher_names if tm else {}
+        for tname in scope.teachers:
+            name = _resolve_teacher(tname, teacher_names)
+            classes = teacher_sets.get(name, set()) & all_classes
+            if classes:
+                tasks.append((name, classes))
+    elif scope.mode == "custom":
+        classes = set(scope.classes) & all_classes
+        if classes:
+            tasks.append((_label_for(classes, all_classes, teacher_sets), classes))
+    else:
+        tasks.append(("全部班级", all_classes))
+
+    paths: list[str] = []
+    for label, classes in tasks:
+        paths.append(
+            _write_merged_strip_file(
+                exams, valid_list, questions_list, classes, label, cfg, config
+            )
+        )
+    return paths
+
+
+def _write_merged_strip_file(
+    exams: list[ExamConfig],
+    valid_list: list[pd.DataFrame],
+    questions_list: list[pd.DataFrame],
+    classes: set[str],
+    label: str,
+    cfg: ResultsConfig,
+    config: AnalysisConfig,
+) -> str:
+    p = cfg.personal
+    out_dir = Path(config.results_dir) / (exams[0].semester or "")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    suffix = date_range_suffix(exams)
+    path = out_dir / f"{suffix}_{label}_个人成绩单.xlsx"
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet("个人成绩单")
+    cols, rows, widths, header_rows = _build_merged_rows(
+        exams, valid_list, questions_list, classes, cfg
+    )
+    _write_sheet(ws, cols, rows, widths, cfg, header_rows=header_rows)
+    wb.save(path)
+    return str(path)
+
+
+def _build_merged_rows(
+    exams: list[ExamConfig],
+    valid_list: list[pd.DataFrame],
+    questions_list: list[pd.DataFrame],
+    classes: set[str],
+    cfg: ResultsConfig,
+) -> tuple[list[str], list[list[object]], list[float], set[int]]:
+    """构建合并成绩单：每个学生一个表头 + 各场一行数据。"""
+    p = cfg.personal
+    cols = list(_MERGED_COLS)
+    widths = list(p.layout.column_widths["first10"]) + [
+        p.layout.column_widths["merged_question_cols"]
+    ]
+
+    per_exam: list[tuple[ExamConfig, pd.DataFrame, dict[str, str]]] = []
+    for exam, valid, questions in zip(exams, valid_list, questions_list):
+        _wide, big, _subj_cols, big_cols = _subjective_pivot(questions)
+        big_s = big.copy()
+        big_s.index = big_s.index.astype(str)
+        subj_str: dict[str, str] = {}
+        for sid in big_s.index:
+            vals = [
+                big_s.loc[sid, c] if sid in big_s.index else None
+                for c in big_cols
+            ]
+            subj_str[sid] = "|".join(
+                "" if pd.isna(v) else str(int(v)) for v in vals
+            )
+        v = valid[valid["class_name"].isin(classes)].copy()
+        v["_sid"] = v["student_id"].astype(str)
+        per_exam.append((exam, v, subj_str))
+
+    all_sids: set[str] = set()
+    meta: dict[str, tuple[str, str]] = {}
+    total_sum: dict[str, float] = {}
+    total_cnt: dict[str, int] = {}
+    for _, v, _ in per_exam:
+        for _, row in v.iterrows():
+            sid = row["_sid"]
+            all_sids.add(sid)
+            if sid not in meta:
+                meta[sid] = (
+                    str(row["class_name"]),
+                    "" if pd.isna(row["name"]) else str(row["name"]),
+                )
+            total_sum[sid] = total_sum.get(sid, 0.0) + float(row["total_score"])
+            total_cnt[sid] = total_cnt.get(sid, 0) + 1
+
+    def avg(sid: str) -> float:
+        return total_sum.get(sid, 0.0) / max(total_cnt.get(sid, 1), 1)
+
+    students = sorted(all_sids, key=lambda s: (meta[s][0], -avg(s), s))
+
+    rows: list[list[object]] = []
+    header_rows: set[int] = set()
+    for sid in students:
+        header_rows.add(len(rows) + 1)
+        rows.append(list(cols))
+        cls, name = meta[sid]
+        for exam, v, subj_str in per_exam:
+            row = v[v["_sid"] == sid]
+            if row.empty:
+                continue  # 该生未参加本场
+            srow = row.iloc[0]
+            rows.append(
+                [
+                    cls,
+                    name,
+                    exam.effective_short_name,
+                    srow["班次"],
+                    srow["校次"],
+                    srow["total_score"],
+                    srow["objective_score"],
+                    srow["subjective_score"],
+                    srow["单选分"],
+                    srow["多选分"],
+                    subj_str.get(sid, ""),
+                ]
+            )
+        for _ in range(p.layout.blank_rows_between):
+            rows.append([None] * len(cols))
+    return cols, rows, widths, header_rows

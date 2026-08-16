@@ -1,5 +1,7 @@
 """parse 流程的集成测试。"""
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 import yaml
@@ -18,6 +20,7 @@ def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None):
     (exams_dir / "高一第二学期" / "周测.yaml").write_text(
         "name: 周测\n"
         "format: weekly\n"
+        "date: \"2026-03-25\"\n"
         "folder: data/input/测试样例\n"
         "file: 【教学班报告--高一下地理限时练一】所有班级学生小题得分明细.xlsx\n"
         "subject: 地理\n"
@@ -144,13 +147,13 @@ def test_run_pipeline_writes_report_and_statistics(tmp_path, capsys):
     assert "[统计]" in out_text
     assert "[报告]" in out_text
 
-    report = out / "reports" / "高一第二学期" / "成绩分析汇总.xlsx"
+    report = out / "reports" / "高一第二学期" / "成绩分析汇总_20260325.xlsx"
     assert report.is_file()
     stat = out / "statistics" / "高一第二学期" / "高一下地理周测.xlsx"
     assert stat.is_file()
     sheets = pd.read_excel(stat, sheet_name=None)
     assert set(sheets) == {"科目统计", "分数段分布", "个人排名", "班级对比", "教师对比"}
-    assert (out / "merged" / "merged_long.csv").is_file()
+    assert not (out / "merged" / "merged_long.csv").exists()  # 单场不做 merge 落盘
     assert (out / "run-info" / "latest" / "运行日志.txt").is_file()
     assert (out / "quality" / "数据质量.xlsx").is_file()
     results = out / "results" / "高一第二学期"
@@ -196,6 +199,25 @@ def test_run_results_exam_filter_with_unnamed_weekly(tmp_path, capsys):
     assert "[个人成绩单]" in out_text
 
 
+def test_run_results_current_exam_index_lists_exams(tmp_path, capsys):
+    """未传 --exam 时列出考试列表，并按 current_exam 序号限定。"""
+    from grade_analyzer.pipeline import parse_exams, run_results
+
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    parse_exams(cfg_path)
+    # 设置 current_exam = 1（第 1 场）
+    text = Path(cfg_path).read_text(encoding="utf-8")
+    Path(cfg_path).write_text(text + "current_exam: 1\n", encoding="utf-8")
+
+    run_results(cfg_path)
+    out_text = capsys.readouterr().out
+    assert "[考试列表]" in out_text
+    assert "1. 高一下地理周测" in out_text
+    assert "[个人成绩单]" in out_text
+
+
 def test_run_pipeline_exam_filter(tmp_path, capsys):
     """run --exam 只处理指定考试；未指定时含无规范表考试会失败。"""
     from grade_analyzer.pipeline import run_pipeline
@@ -220,3 +242,39 @@ def test_run_pipeline_exam_filter(tmp_path, capsys):
 
     with pytest.raises(ValueError, match="未找到指定考试"):
         run_pipeline(cfg_path, exam="不存在的考试")
+
+
+def test_resolve_exam_selection_number_list():
+    from grade_analyzer.config import AnalysisConfig, ExamConfig
+    from grade_analyzer.pipeline import _resolve_exam_selection
+
+    cfg = AnalysisConfig(current_exam=None)
+    cfg.exams = [
+        ExamConfig(name="A", semester="高一第二学期", date="2026-03-25"),
+        ExamConfig(name="B", semester="高一第二学期", date="2026-04-20"),
+        ExamConfig(name="C", semester="高一第二学期", date="2026-05-01"),
+    ]
+    selected, names, merge_semester = _resolve_exam_selection(
+        cfg, "1,3", "高一第二学期"
+    )
+    assert [e.name for e in selected] == ["A", "C"]
+    assert names == ["A", "C"]
+    assert merge_semester == "高一第二学期"
+
+    selected2, _, _ = _resolve_exam_selection(cfg, "B", "高一第二学期")
+    assert [e.name for e in selected2] == ["B"]
+
+
+def test_resolve_exam_selection_current_exam_list():
+    from grade_analyzer.config import AnalysisConfig, ExamConfig
+    from grade_analyzer.pipeline import _resolve_exam_selection
+
+    cfg = AnalysisConfig(current_exam=[1, -1])
+    cfg.exams = [
+        ExamConfig(name="A", semester="高一第二学期", date="2026-03-25"),
+        ExamConfig(name="B", semester="高一第二学期", date="2026-04-20"),
+        ExamConfig(name="C", semester="高一第二学期", date="2026-05-01"),
+    ]
+    selected, names, _ = _resolve_exam_selection(cfg, None, "高一第二学期")
+    assert [e.name for e in selected] == ["A", "C"]  # 第 1 场与倒数第 1 场
+    assert names == ["A", "C"]

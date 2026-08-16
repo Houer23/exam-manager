@@ -8,9 +8,12 @@ config get/set：全局配置管理（白名单 + 类型/范围校验）。
 
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 from .config import AnalysisConfig, ExamConfig, load_config
 from .detect import resolve_exam_name
@@ -23,7 +26,7 @@ CONFIG_KEY_WHITELIST: dict[str, str] = {
     "default_full_score": "number",
     "default_grade": "text",
     "current_semester": "text",
-    "current_exam": "text",
+    "current_exam": "integer",
     "parsed_dir": "text",
     "parsed_format": "text",
 }
@@ -35,6 +38,30 @@ CONFIG_KEY_RANGES: dict[str, tuple[float, float]] = {
     "default_full_score": (1.0, 1000.0),
 }
 
+# 白名单键的默认值（config set 省略 value 时恢复为这些值）
+CONFIG_KEY_DEFAULTS: dict[str, str] = {
+    "pass_ratio": "0.6",
+    "excellent_ratio": "0.85",
+    "default_full_score": "100",
+    "default_grade": "高一",
+    "current_semester": "高一第二学期",
+    "current_exam": "",
+    "parsed_dir": "data/parsed",
+    "parsed_format": "csv",
+}
+
+# 白名单键 -> 配置文件内的取值路径（逐层取）
+_KEY_PATHS: dict[str, tuple[str, ...]] = {
+    "pass_ratio": ("analysis", "pass_ratio"),
+    "excellent_ratio": ("analysis", "excellent_ratio"),
+    "default_full_score": ("default_full_score",),
+    "default_grade": ("default_grade",),
+    "current_semester": ("current_semester",),
+    "current_exam": ("current_exam",),
+    "parsed_dir": ("parsed_dir",),
+    "parsed_format": ("parsed_format",),
+}
+
 
 def validate_config_value(key: str, value: str) -> str:
     """校验并归一化全局配置值，返回可直接写入 YAML 的值。
@@ -43,6 +70,21 @@ def validate_config_value(key: str, value: str) -> str:
     """
     if key not in CONFIG_KEY_WHITELIST:
         raise ValueError(f"不允许修改的配置键: {key}")
+    if CONFIG_KEY_WHITELIST[key] == "integer":
+        stripped = value.strip()
+        if stripped == "":
+            return stripped  # 空值表示"处理全部"
+        for part in stripped.split(","):
+            part = part.strip()
+            if part == "":
+                continue
+            try:
+                int(part)
+            except ValueError:
+                raise ValueError(
+                    f"{key} 应为整数列表（逗号分隔，可含 0 与负数），当前为 {value}"
+                )
+        return stripped
     if CONFIG_KEY_WHITELIST[key] == "number":
         num = float(value)
         if key in CONFIG_KEY_RANGES:
@@ -185,14 +227,80 @@ def list_exams(
     )
 
 
-def get_config_value(config_path: str, key: str) -> None:
-    """读取全局配置项并打印。"""
-    raise NotImplementedError("config get 将在后续实现")
+def get_config_value(config_path: str, key: str | None = None) -> None:
+    """读取全局配置项并打印；key 省略时列出全部白名单键及值。"""
+    cfg_path = Path(config_path)
+    if not cfg_path.is_file():
+        raise FileNotFoundError(f"配置文件不存在: {cfg_path}")
+    raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+
+    def _print_value(k: str) -> None:
+        value = raw
+        for part in _KEY_PATHS[k]:
+            value = value.get(part) if isinstance(value, dict) else None
+        print(f"{k}: {value}")
+
+    if key is None:
+        for k in sorted(CONFIG_KEY_WHITELIST):
+            _print_value(k)
+        return
+    if key not in CONFIG_KEY_WHITELIST:
+        raise ValueError(
+            f"不支持的配置键: {key}（可用: {', '.join(sorted(CONFIG_KEY_WHITELIST))}）"
+        )
+    _print_value(key)
 
 
-def set_config_value(config_path: str, key: str, value: str) -> None:
+def set_config_value(config_path: str, key: str, value: str | None = None) -> None:
     """修改全局配置项。
 
-    TODO: validate_config_value 校验 -> 原子写入 -> 重新加载校验。
+    validate_config_value 校验 -> 文本级行替换（保留注释）
+    -> 临时文件整体校验 -> 原子替换原文件。
+    value 省略（None）时恢复该键的默认值。
     """
-    raise NotImplementedError("config set 将在后续实现")
+    if key not in CONFIG_KEY_WHITELIST:
+        raise ValueError(
+            f"不支持的配置键: {key}（可用: {', '.join(sorted(CONFIG_KEY_WHITELIST))}）"
+        )
+    if value is None:
+        value = CONFIG_KEY_DEFAULTS[key]
+    cfg_path = Path(config_path)
+    if not cfg_path.is_file():
+        raise FileNotFoundError(f"配置文件不存在: {cfg_path}")
+
+    new_value = validate_config_value(key, value)
+    text = cfg_path.read_text(encoding="utf-8")
+    new_text = _replace_key_line(text, key, _format_value(key, new_value))
+
+    tmp_path = cfg_path.with_name(cfg_path.name + ".tmp")
+    tmp_path.write_text(new_text, encoding="utf-8")
+    try:
+        load_config(str(tmp_path))  # 整体校验（含组合合法性）
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    os.replace(tmp_path, cfg_path)
+    print(f"{key}: {new_value} 已写入 {cfg_path}")
+
+
+def _format_value(key: str, value: str) -> str:
+    """把校验后的值格式化为 YAML 标量文本。"""
+    if CONFIG_KEY_WHITELIST[key] in ("number", "integer"):
+        if value == "":
+            return "''"  # 空值写为空字符串（表示处理全部）
+        return value  # 数字原样写入（如 0.65）
+    scalar = yaml.safe_dump(value, allow_unicode=True).strip()
+    if scalar.endswith("..."):  # 去掉 PyYAML 对单值文档追加的结束标记
+        scalar = scalar[:-3].strip()
+    return scalar
+
+
+def _replace_key_line(text: str, key: str, formatted: str) -> str:
+    """按行匹配 `键名:` 并只替换值部分，保留注释与其余格式。"""
+    pattern = re.compile(rf"^(\s*{re.escape(key)}:).*$", re.MULTILINE)
+    new_text, count = pattern.subn(
+        lambda m: f"{m.group(1)} {formatted}", text, count=1
+    )
+    if count == 0:
+        raise ValueError(f"配置文件中未找到键: {key}")
+    return new_text

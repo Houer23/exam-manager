@@ -210,6 +210,59 @@ def test_effective_short_name_falls_back_to_full_name(tmp_path):
     assert exam.effective_short_name == "高一下地理周测"
 
 
+def test_current_exam_int_loaded(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(exams_dir, "高一第一学期", "周测", name="周测")
+    cfg = load_config(
+        str(_write_global(tmp_path, exams_dir=str(exams_dir), current_exam=3))
+    )
+    assert cfg.current_exam == [3]
+
+
+def test_current_exam_string_int_loaded(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(exams_dir, "高一第一学期", "周测", name="周测")
+    cfg = load_config(
+        str(_write_global(tmp_path, exams_dir=str(exams_dir), current_exam="2"))
+    )
+    assert cfg.current_exam == [2]
+
+
+def test_current_exam_invalid_raises(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(exams_dir, "高一第一学期", "周测", name="周测")
+    with pytest.raises(ValueError, match="current_exam"):
+        load_config(
+            str(_write_global(tmp_path, exams_dir=str(exams_dir), current_exam="abc"))
+        )
+    with pytest.raises(ValueError, match="current_exam"):
+        load_config(
+            str(_write_global(tmp_path, exams_dir=str(exams_dir), current_exam=1.5))
+        )
+
+
+def test_current_exam_empty_is_none(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(exams_dir, "高一第一学期", "周测", name="周测")
+    cfg = load_config(
+        str(_write_global(tmp_path, exams_dir=str(exams_dir), current_exam=""))
+    )
+    assert cfg.current_exam is None
+
+
+def test_current_exam_list_loaded(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(exams_dir, "高一第一学期", "周测", name="周测")
+    cfg = load_config(
+        str(_write_global(tmp_path, exams_dir=str(exams_dir), current_exam=[1, 3]))
+    )
+    assert cfg.current_exam == [1, 3]
+    cfg2 = load_config(
+        str(_write_global(tmp_path, exams_dir=str(exams_dir), current_exam="1,3"))
+    )
+    assert cfg2.current_exam == [1, 3]
+
+
 def test_unknown_global_key_raises(tmp_path):
     cfg_path = _write_global(tmp_path, nope=1)
     with pytest.raises(ValueError, match="未知配置键"):

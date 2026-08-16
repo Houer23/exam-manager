@@ -28,6 +28,7 @@ from .charts import (
     add_distribution_chart,
     add_trend_chart,
 )
+from .consolidate import date_range_suffix
 from pathlib import Path
 
 from .cleaning import collect_quality_issues
@@ -148,7 +149,11 @@ def build_report(
     semester = config.current_semester or (
         frames[0][0].semester if frames else "未指定"
     )
-    path = reports_dir(config.output) / semester / "成绩分析汇总.xlsx"
+    suffix = date_range_suffix([e for e, _ in frames])
+    stem = Path(config.output.excel_name).stem or "成绩分析汇总"
+    ext = Path(config.output.excel_name).suffix or ".xlsx"
+    name = f"{stem}_{suffix}{ext}" if suffix else f"{stem}{ext}"
+    path = reports_dir(config.output) / semester / name
     write_excel_report(sheets, str(path), _formats_for(sheets))
     _embed_report_charts(str(path), sheets)
     return str(path)

@@ -6,10 +6,12 @@ import yaml
 
 from grade_analyzer.config import AnalysisConfig, ExamConfig
 from grade_analyzer.consolidate import (
+    date_range_suffix,
     merge_score_tables,
-    resolve_current_exam,
+    resolve_exam_by_index,
     run_merge,
     select_exams,
+    sort_exams_by_date,
 )
 from grade_analyzer.storage import write_parsed_tables
 
@@ -97,12 +99,13 @@ def test_merge_score_tables():
     assert row2["参考场次"] == 1
 
 
-def _write_exam_yaml(exams_dir, semester, file_name, name, folder, file):
+def _write_exam_yaml(exams_dir, semester, file_name, name, folder, file, date=""):
     folder_path = exams_dir / semester
     folder_path.mkdir(parents=True, exist_ok=True)
     (folder_path / f"{file_name}.yaml").write_text(
         f"name: {name}\n"
         f"type: 默认\n"
+        f"date: \"{date}\"\n"
         f"folder: {folder}\n"
         f"file: {file}\n"
         f"subject: 地理\n"
@@ -148,14 +151,14 @@ def test_run_merge_writes_outputs(tmp_path):
         _score_df("高一下地理限时练一", ["250907010001"], [84.0], [0.84], "高一13班", "高一", "遂昌中学"),
         pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
     )
-    _write_exam_yaml(exams_dir, "高一第二学期", "联考", "高一下地理期中联考", "data/input/测试样例", "地理原始数据.xlsx")
-    _write_exam_yaml(exams_dir, "高一第二学期", "周测", "高一下地理限时练一", "data/input/测试样例", "周测.xlsx")
+    _write_exam_yaml(exams_dir, "高一第二学期", "联考", "高一下地理期中联考", "data/input/测试样例", "地理原始数据.xlsx", date="2026-04-20")
+    _write_exam_yaml(exams_dir, "高一第二学期", "周测", "高一下地理限时练一", "data/input/测试样例", "周测.xlsx", date="2026-03-25")
 
     cfg_path = _write_config(tmp_path, exams_dir, parsed, out)
     run_merge(cfg_path)
 
-    wide_path = out / "merged" / "merged_wide.csv"
-    long_path = out / "merged" / "merged_long.csv"
+    wide_path = out / "merged" / "merged_wide_20260325-20260420.csv"
+    long_path = out / "merged" / "merged_long_20260325-20260420.csv"
     assert wide_path.is_file()
     assert long_path.is_file()
     wide = pd.read_csv(wide_path, encoding="utf-8-sig")
@@ -180,43 +183,96 @@ def test_run_merge_with_baseline(tmp_path):
         _score_df("高一上地理基准", ["250907010001"], [60.0], [0.6], "高一02班", "高一", "青田中学"),
         pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
     )
-    _write_exam_yaml(exams_dir, "高一第二学期", "联考", "高一下地理期中联考", "data/input/测试样例", "地理原始数据.xlsx")
-    _write_exam_yaml(exams_dir, "高一第一学期", "基准", "高一上地理基准", "data/input/测试样例", "基准.xlsx")
+    _write_exam_yaml(exams_dir, "高一第二学期", "联考", "高一下地理期中联考", "data/input/测试样例", "地理原始数据.xlsx", date="2026-04-20")
+    _write_exam_yaml(exams_dir, "高一第一学期", "基准", "高一上地理基准", "data/input/测试样例", "基准.xlsx", date="2026-01-10")
 
     cfg_path = _write_config(tmp_path, exams_dir, parsed, out)
     run_merge(cfg_path, baseline_exams="高一上地理基准")
 
-    wide = pd.read_csv(out / "merged" / "merged_wide.csv", encoding="utf-8-sig")
+    wide = pd.read_csv(
+        out / "merged" / "merged_wide_20260110-20260420.csv", encoding="utf-8-sig"
+    )
     assert "高一上地理基准_得分率" in wide.columns
     assert len(wide) == 1
 
 
-def test_cli_exam_overrides_config():
-    exams = [_exam("A", "2026-05-01"), _exam("B", "2026-06-01")]
-    cfg = AnalysisConfig(current_exam="A")
-    assert resolve_current_exam(exams, explicit="B", config=cfg).name == "B"
+def test_sort_exams_by_date():
+    e1 = _exam("A", "2026-03-01")
+    e2 = _exam("B", "2026-01-01")
+    e3 = _exam("C", "2026-02-01")
+    assert [e.name for e in sort_exams_by_date([e1, e2, e3])] == ["B", "C", "A"]
 
 
-def test_config_exam_wins_over_date():
-    exams = [_exam("A", "2026-05-01"), _exam("B", "2026-06-01")]
-    cfg = AnalysisConfig(current_exam="A")
-    assert resolve_current_exam(exams, explicit=None, config=cfg).name == "A"
+def test_resolve_exam_by_index_positive():
+    exams = [
+        _exam("A", "2026-01-01"),
+        _exam("B", "2026-02-01"),
+        _exam("C", "2026-03-01"),
+    ]
+    assert resolve_exam_by_index(exams, 1).name == "A"
+    assert resolve_exam_by_index(exams, 2).name == "B"
+    assert resolve_exam_by_index(exams, 3).name == "C"
 
 
-def test_fallback_to_latest_date():
-    exams = [_exam("A", "2026-05-01"), _exam("B", "2026-06-01")]
-    cfg = AnalysisConfig()
-    assert resolve_current_exam(exams, explicit=None, config=cfg).name == "B"
+def test_resolve_exam_by_index_overflow_takes_last():
+    exams = [
+        _exam("A", "2026-01-01"),
+        _exam("B", "2026-02-01"),
+        _exam("C", "2026-03-01"),
+    ]
+    assert resolve_exam_by_index(exams, 99).name == "C"
 
 
-def test_same_date_keeps_last_in_order():
-    exams = [_exam("A", "2026-05-01"), _exam("B", "2026-05-01")]
-    cfg = AnalysisConfig()
-    assert resolve_current_exam(exams, explicit=None, config=cfg).name == "B"
+def test_resolve_exam_by_index_zero_takes_first():
+    exams = [_exam("A", "2026-01-01"), _exam("B", "2026-02-01")]
+    assert resolve_exam_by_index(exams, 0).name == "A"
 
 
-def test_explicit_not_found_raises():
-    exams = [_exam("A", "2026-05-01")]
-    cfg = AnalysisConfig()
+def test_resolve_exam_by_index_negative():
+    exams = [
+        _exam("A", "2026-01-01"),
+        _exam("B", "2026-02-01"),
+        _exam("C", "2026-03-01"),
+    ]
+    assert resolve_exam_by_index(exams, -1).name == "C"
+    assert resolve_exam_by_index(exams, -2).name == "B"
+    assert resolve_exam_by_index(exams, -3).name == "A"
+    # 负数绝对值过大取第一场
+    assert resolve_exam_by_index(exams, -99).name == "A"
+
+
+def test_resolve_exam_by_index_empty_raises():
     with pytest.raises(ValueError):
-        resolve_current_exam(exams, explicit="X", config=cfg)
+        resolve_exam_by_index([], 1)
+
+
+def test_date_range_suffix():
+    assert date_range_suffix([]) == ""
+    assert date_range_suffix([_exam("A", "2026-03-25")]) == "20260325"
+    assert (
+        date_range_suffix(
+            [_exam("A", "2026-03-25"), _exam("B", "2026-04-20")]
+        )
+        == "20260325-20260420"
+    )
+
+
+def test_run_merge_single_exam_skips_files(tmp_path):
+    exams_dir = tmp_path / "exams"
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    e1 = ExamConfig(
+        name="高一下地理限时练一", type="默认", semester="高一第二学期", date="2026-03-25"
+    )
+    write_parsed_tables(
+        str(parsed), e1,
+        _score_df("高一下地理限时练一", ["250907010001"], [84.0], [0.84], "高一13班", "高一", "遂昌中学"),
+        pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
+    )
+    _write_exam_yaml(
+        exams_dir, "高一第二学期", "周测", "高一下地理限时练一",
+        "data/input/测试样例", "周测.xlsx", date="2026-03-25",
+    )
+    cfg_path = _write_config(tmp_path, exams_dir, parsed, out)
+    run_merge(cfg_path)
+    assert not (out / "merged").exists() or not list((out / "merged").glob("merged_*.csv"))

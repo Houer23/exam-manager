@@ -71,6 +71,7 @@ pip install -r requirements.txt
 
 - `default_school`：原始表无"学校"列时填充的默认学校；
 - `current_semester`：run / merge / results 默认处理的学期；
+- `current_exam`：场次序号列表（整数，逗号分隔，按日期升序编号：0=第一场，负数=倒数）；留空处理全部，`--exam` 名称或序号列表优先；
 - `default_grade`：成绩文件无年级时的默认年级；
 - `input_dir`：默认成绩单输入目录（考试配置 `folder` 留空时使用）；
 - `subjects` / `subject_aliases` / `subject_defaults`：科目词表、别名（如 英语→外语）与满分默认值；
@@ -142,8 +143,11 @@ python -m grade_analyzer.cli check                   # 校验名称/文件/满�
 python -m grade_analyzer.cli parse                   # 原始文件 -> 规范表（data/parsed/）
 python -m grade_analyzer.cli run                     # 完整流程：统计/汇总/成绩单/图表/报告/质量
 python -m grade_analyzer.cli run --exam <考试名称>    # 只处理指定考试
+python -m grade_analyzer.cli run --exam 1,3          # 按日期升序序号选择多场合并分析
 python -m grade_analyzer.cli results --exam <考试名称> # 只生成班级汇总与个人成绩单
 ```
+
+多场考试（≥2）时：merged 长表/宽表与成绩分析汇总文件名标注日期范围（如 `merged_long_20260325-20260420.csv`、`成绩分析汇总_20260325-20260420.xlsx`），单场不做 merge 落盘、报告标注该场日期；个人成绩单合并为一份（每生一个表头，每场考试一行，主观题列为各大题得分竖线合并字符串）。
 
 ### 5. 跨场合并与名单核对（可选）
 

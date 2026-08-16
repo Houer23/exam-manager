@@ -6,7 +6,13 @@ import pandas as pd
 import pytest
 import yaml
 
-from grade_analyzer.config_ops import list_exams, validate_config_value
+from grade_analyzer.config import load_config
+from grade_analyzer.config_ops import (
+    get_config_value,
+    list_exams,
+    set_config_value,
+    validate_config_value,
+)
 
 
 def test_number_value_valid():
@@ -30,6 +36,20 @@ def test_unknown_key_raises():
 
 def test_text_value_ok():
     assert validate_config_value("current_semester", "高一第一学期") == "高一第一学期"
+
+
+def test_current_exam_integer_valid():
+    assert validate_config_value("current_exam", "3") == "3"
+    assert validate_config_value("current_exam", "0") == "0"
+    assert validate_config_value("current_exam", "-2") == "-2"
+    assert validate_config_value("current_exam", "") == ""  # 空值表示处理全部
+
+
+def test_current_exam_integer_invalid():
+    with pytest.raises(ValueError, match="整数"):
+        validate_config_value("current_exam", "abc")
+    with pytest.raises(ValueError, match="整数"):
+        validate_config_value("current_exam", "1.5")
 
 
 def _write_global(tmp_path: Path, exams_dir: Path, **overrides) -> Path:
@@ -148,3 +168,140 @@ def test_list_exams_semester_filter(tmp_path):
     df = list_exams(cfg_path, semester="高二第一学期")
     assert list(df["考试名称"]) == ["高二上地理周测"]
     assert list(df["学期"]) == ["高二第一学期"]
+
+
+def test_get_config_value(tmp_path, capsys):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(
+        tmp_path,
+        exams_dir,
+        analysis={"pass_ratio": 0.6, "excellent_ratio": 0.85},
+        default_grade="高一",
+    )
+    get_config_value(str(cfg_path), "pass_ratio")
+    assert "0.6" in capsys.readouterr().out
+    get_config_value(str(cfg_path), "default_grade")
+    assert "高一" in capsys.readouterr().out
+
+
+def test_get_config_value_lists_all_keys(tmp_path, capsys):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(
+        tmp_path,
+        exams_dir,
+        analysis={"pass_ratio": 0.6, "excellent_ratio": 0.85},
+        default_grade="高一",
+        current_semester="高一第二学期",
+        parsed_dir=str(tmp_path / "parsed"),
+        parsed_format="csv",
+    )
+    get_config_value(str(cfg_path))
+    out = capsys.readouterr().out
+    assert "pass_ratio: 0.6" in out
+    assert "excellent_ratio: 0.85" in out
+    assert "default_grade: 高一" in out
+    assert "current_semester: 高一第二学期" in out
+    assert "parsed_dir:" in out
+    assert "parsed_format: csv" in out
+
+
+def test_get_config_value_unknown_key_raises(tmp_path):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(tmp_path, exams_dir)
+    with pytest.raises(ValueError, match="不支持的配置键"):
+        get_config_value(str(cfg_path), "nope")
+
+
+def test_set_config_value_persists(tmp_path, capsys):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(tmp_path, exams_dir, default_grade="高一")
+    set_config_value(str(cfg_path), "default_grade", "高二")
+    out = capsys.readouterr().out
+    assert "高二" in out
+    assert load_config(str(cfg_path)).default_grade == "高二"
+    text = cfg_path.read_text(encoding="utf-8")
+    assert "default_grade: 高二" in text
+    # 其余键与结构保留
+    assert "exams_dir:" in text
+    assert "subject_defaults:" in text
+
+
+def test_set_number_written_as_number(tmp_path):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(
+        tmp_path, exams_dir, analysis={"pass_ratio": 0.6, "excellent_ratio": 0.85}
+    )
+    set_config_value(str(cfg_path), "pass_ratio", "0.7")
+    text = cfg_path.read_text(encoding="utf-8")
+    assert "pass_ratio: 0.7" in text
+    assert load_config(str(cfg_path)).pass_ratio == 0.7
+
+
+def test_set_invalid_value_keeps_original(tmp_path):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(tmp_path, exams_dir)
+    before = cfg_path.read_text(encoding="utf-8")
+    with pytest.raises(ValueError):
+        set_config_value(str(cfg_path), "pass_ratio", "1.5")
+    assert cfg_path.read_text(encoding="utf-8") == before
+
+
+def test_set_unknown_key_raises(tmp_path):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(tmp_path, exams_dir)
+    with pytest.raises(ValueError, match="不支持的配置键"):
+        set_config_value(str(cfg_path), "nope", "1")
+
+
+def test_set_config_value_none_restores_default(tmp_path, capsys):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(
+        tmp_path,
+        exams_dir,
+        analysis={"pass_ratio": 0.7, "excellent_ratio": 0.9},
+    )
+    set_config_value(str(cfg_path), "pass_ratio", None)
+    text = cfg_path.read_text(encoding="utf-8")
+    assert "pass_ratio: 0.6" in text
+    assert load_config(str(cfg_path)).pass_ratio == 0.6
+    assert "0.6" in capsys.readouterr().out
+
+
+def test_set_config_value_none_restores_current_exam_empty(tmp_path):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(tmp_path, exams_dir, current_exam=3)
+    set_config_value(str(cfg_path), "current_exam", None)
+    assert load_config(str(cfg_path)).current_exam is None
+
+
+def test_cli_config_set_without_value_parses():
+    from grade_analyzer.cli import build_parser
+
+    args = build_parser().parse_args(["config", "set", "pass_ratio"])
+    assert args.config_command == "set"
+    assert args.key == "pass_ratio"
+    assert args.value is None
+
+
+def test_set_invalid_combination_keeps_original(tmp_path):
+    # 考试条目非法导致整体校验失败：set 应回滚，原文件不变
+    exams_dir = tmp_path / "exams"
+    (exams_dir / "高一第一学期").mkdir(parents=True)
+    (exams_dir / "高一第一学期" / "测试.yaml").write_text(
+        "file: ''\n", encoding="utf-8"
+    )
+    cfg_path = _write_global(tmp_path, exams_dir)
+    before = cfg_path.read_text(encoding="utf-8")
+    with pytest.raises(ValueError):
+        set_config_value(str(cfg_path), "default_grade", "高二")
+    assert cfg_path.read_text(encoding="utf-8") == before
+    assert not Path(str(cfg_path) + ".tmp").exists()

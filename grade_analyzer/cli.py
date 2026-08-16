@@ -74,7 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--exam",
         default=None,
-        help="限定本次 run 只处理指定考试（名称与 exam list 显示一致）",
+        help="考试名称或序号列表（如 1,3；纯数字/逗号=按日期升序序号，否则按名称）；"
+             "不传时列出考试列表并按 current_exam 或全部处理",
     )
     run_parser.add_argument(
         "--reparse", action="store_true", help="忽略缓存强制重新解析"
@@ -161,12 +162,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     get_p = config_sub.add_parser("get", help="读取全局配置项")
     add_config_arg(get_p)
-    get_p.add_argument("key", help="配置键（如 pass_ratio）")
+    get_p.add_argument(
+        "key",
+        nargs="?",
+        default=None,
+        help="配置键（如 pass_ratio）；省略时列出全部可 get 的键及值",
+    )
 
     set_p = config_sub.add_parser("set", help="修改全局配置项（白名单+类型/范围校验）")
     add_config_arg(set_p)
     set_p.add_argument("key", help="配置键（如 pass_ratio）")
-    set_p.add_argument("value", help="配置值")
+    set_p.add_argument(
+        "value",
+        nargs="?",
+        default=None,
+        help="配置值；省略时恢复该键默认值",
+    )
 
     # ---------- roster：名单清洗与核对 ----------
     roster_parser = subparsers.add_parser("roster", help="名单清洗与核对")
@@ -187,7 +198,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_config_arg(results_parser)
     results_parser.add_argument("--semester", default=None, help="学期（缺省=当前学期）")
-    results_parser.add_argument("--exam", default=None, help="考试名称（缺省=全部）")
+    results_parser.add_argument(
+        "--exam",
+        default=None,
+        help="考试名称或序号列表（如 1,3；纯数字/逗号=按日期升序序号，否则按名称）；"
+             "缺省时列出考试列表并按 current_exam 或全部处理",
+    )
     return parser
 
 
