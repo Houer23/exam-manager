@@ -204,6 +204,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="考试名称或序号列表（如 1,3；纯数字/逗号=按日期升序序号，否则按名称）；"
              "缺省时列出考试列表并按 current_exam 或全部处理",
     )
+    results_parser.add_argument(
+        "--no-merge-strips",
+        action="store_true",
+        help="多场考试时个人成绩单不合并，每场单独生成（缺省=合并）",
+    )
+    results_only_group = results_parser.add_mutually_exclusive_group()
+    results_only_group.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="只生成班级成绩汇总，不生成个人成绩单",
+    )
+    results_only_group.add_argument(
+        "--strips-only",
+        action="store_true",
+        help="只生成个人成绩单，不生成班级成绩汇总",
+    )
     return parser
 
 
@@ -319,7 +335,14 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "results":
         from .pipeline import run_results
 
-        run_results(args.config, semester=args.semester, exam_name=args.exam)
+        run_results(
+            args.config,
+            semester=args.semester,
+            exam_name=args.exam,
+            merge_strips=not args.no_merge_strips,
+            generate_summary=not args.strips_only,
+            generate_strips=not args.summary_only,
+        )
     return 0
 
 

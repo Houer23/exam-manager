@@ -187,6 +187,7 @@ personal:
     paper_size: A4
     margin: {top: 0.5, bottom: 0.5, left: 0.5, right: 0.5}
     fit_to_width: false
+    rows_per_page: 41          # 每页行数；留空 = 按纸张/边距/行高自动计算
 
 # ==================== 班级成绩汇总 ====================
 class_summary:

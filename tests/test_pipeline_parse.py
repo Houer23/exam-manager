@@ -278,3 +278,84 @@ def test_resolve_exam_selection_current_exam_list():
     selected, names, _ = _resolve_exam_selection(cfg, None, "高一第二学期")
     assert [e.name for e in selected] == ["A", "C"]  # 第 1 场与倒数第 1 场
     assert names == ["A", "C"]
+
+
+def test_cli_results_no_merge_strips_parses():
+    from grade_analyzer.cli import build_parser
+
+    args = build_parser().parse_args(["results", "--no-merge-strips"])
+    assert args.no_merge_strips is True
+    args2 = build_parser().parse_args(["results"])
+    assert args2.no_merge_strips is False
+
+
+def test_cli_results_only_flags_mutually_exclusive():
+    from grade_analyzer.cli import build_parser
+
+    args = build_parser().parse_args(["results", "--summary-only"])
+    assert args.summary_only is True
+    assert args.strips_only is False
+    args2 = build_parser().parse_args(["results", "--strips-only"])
+    assert args2.summary_only is False
+    assert args2.strips_only is True
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["results", "--summary-only", "--strips-only"])
+
+
+def test_run_results_merge_strips_false_generates_per_exam(tmp_path, capsys):
+    """merge_strips=False 时多场各自生成单场个人成绩单，不生成范围合并文件。"""
+    from grade_analyzer.pipeline import parse_exams, run_results
+
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    # 追加第二场联考条目（真实样例）
+    (tmp_path / "exams" / "高一第二学期" / "联考.yaml").write_text(
+        "name: 高一下地理期中联考\n"
+        "format: joint\n"
+        "date: \"2026-04-20\"\n"
+        "folder: data/input/测试样例\n"
+        "file: 地理原始数据.xlsx\n"
+        "subject: 地理\n"
+        "full_score: 100\n"
+        "objective_full_score: 55\n"
+        "subjective_full_score: 45\n",
+        encoding="utf-8",
+    )
+    parse_exams(cfg_path)
+
+    run_results(cfg_path, merge_strips=False)
+    out_text = capsys.readouterr().out
+    assert "[个人成绩单]" in out_text
+    results = out / "results" / "高一第二学期"
+    assert not list(results.glob("*-*_*_个人成绩单.xlsx"))  # 无范围合并文件
+    assert list(results.glob("20260325_*_个人成绩单.xlsx"))
+    assert list(results.glob("20260420_*_个人成绩单.xlsx"))
+
+
+def test_run_results_summary_only(tmp_path, capsys):
+    """generate_strips=False：只生成班级汇总，不生成个人成绩单。"""
+    from grade_analyzer.pipeline import parse_exams, run_results
+
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    parse_exams(cfg_path)
+    run_results(cfg_path, generate_strips=False)
+    out_text = capsys.readouterr().out
+    assert "[班级汇总]" in out_text
+    assert "[个人成绩单]" not in out_text
+
+
+def test_run_results_strips_only(tmp_path, capsys):
+    """generate_summary=False：只生成个人成绩单，不生成班级汇总。"""
+    from grade_analyzer.pipeline import parse_exams, run_results
+
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    parse_exams(cfg_path)
+    run_results(cfg_path, generate_summary=False)
+    out_text = capsys.readouterr().out
+    assert "[班级汇总]" not in out_text
+    assert "[个人成绩单]" in out_text

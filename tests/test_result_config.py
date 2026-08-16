@@ -87,3 +87,36 @@ def test_invalid_alignment_center_cols(tmp_path):
     )
     with pytest.raises(ValueError, match="center_cols"):
         load_results_config(str(tmp_path))
+
+
+def test_print_rows_per_page(tmp_path):
+    _write(
+        tmp_path,
+        "personal:\n"
+        "  print:\n"
+        "    rows_per_page: 41\n",
+    )
+    cfg = load_results_config(str(tmp_path))
+    assert cfg.personal.print.rows_per_page == 41.0
+
+
+def test_print_rows_per_page_empty_is_none(tmp_path):
+    _write(
+        tmp_path,
+        "personal:\n"
+        "  print:\n"
+        "    rows_per_page: ''\n",
+    )
+    cfg = load_results_config(str(tmp_path))
+    assert cfg.personal.print.rows_per_page is None
+
+
+def test_print_rows_per_page_invalid_raises(tmp_path):
+    _write(
+        tmp_path,
+        "personal:\n"
+        "  print:\n"
+        "    rows_per_page: abc\n",
+    )
+    with pytest.raises(ValueError, match="rows_per_page"):
+        load_results_config(str(tmp_path))

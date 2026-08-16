@@ -20,6 +20,12 @@ from .report import _display_qid, _subjective_pivot
 from .result_config import ResultsConfig
 
 _PAPER_SIZE = {"A4": 9, "A3": 8, "Letter": 1}
+# 纸张尺寸（英寸）：用于分页容量估算
+_PAPER_DIMS = {
+    "A4": {"width": 8.27, "height": 11.69},
+    "A3": {"width": 11.69, "height": 16.54},
+    "Letter": {"width": 8.5, "height": 11.0},
+}
 _MERGED_COLS = [
     "班级", "姓名", "考试", "班次", "校次",
     "总分", "客观分", "主观分", "单选", "多选", "主观题",
@@ -71,8 +77,8 @@ def _build_strip_rows(
     big_cols: list[str],
     classes: set[str],
     cfg: ResultsConfig,
-) -> tuple[list[str], list[list[object]], list[float]]:
-    """构建 表头+数据（每学生一组，含空行），返回 (列名, 行列表, 列宽)。"""
+) -> tuple[list[str], list[list[object]], list[float], set[int], dict[int, int]]:
+    """构建 表头+数据（每学生一组，含空行），返回 (列名, 行列表, 列宽, 表头行号, 块大小)。"""
     p = cfg.personal
     wide_s = wide.copy()
     wide_s.index = wide_s.index.astype(str)
@@ -103,8 +109,21 @@ def _build_strip_rows(
         cols += big_disp
         widths += [cw["big_question_cols"]] * len(big_disp)
 
+    blank = p.layout.blank_rows_between
+    n = len(sub)
+    size_full = 2 + blank
+    size_no_blank = 2
+    drops = _plan_block_drops(
+        [size_full] * n, [size_no_blank] * n, _rows_per_page(cfg)
+    )
+
     rows: list[list[object]] = []
-    for _, srow in sub.iterrows():
+    header_rows: set[int] = set()
+    block_sizes: dict[int, int] = {}
+    for idx, (_, srow) in enumerate(sub.iterrows()):
+        header_row = len(rows) + 1
+        header_rows.add(header_row)
+        rows.append(list(cols))  # 表头
         sid = str(srow["student_id"])
         data = [
             srow["class_name"],
@@ -133,11 +152,13 @@ def _build_strip_rows(
         if exam.show_big_questions:
             for c in big_cols:
                 data.append(big_s.loc[sid, c] if sid in big_s.index else None)
-        rows.append(list(cols))  # 表头
         rows.append(data)
-        for _ in range(p.layout.blank_rows_between):
-            rows.append([None] * len(cols))
-    return cols, rows, widths
+        if not drops[idx]:
+            for _ in range(blank):
+                rows.append([None] * len(cols))
+        # 块大小 = 表头 1 行 + 数据行 + 空行（+1 补上表头行本身）
+        block_sizes[header_row] = len(rows) - header_row + 1
+    return cols, rows, widths, header_rows, block_sizes
 
 
 def _write_strip_file(
@@ -162,18 +183,26 @@ def _write_strip_file(
     wb.remove(wb.active)
     if p.single_sheet:
         ws = wb.create_sheet("个人成绩单")
-        _write_sheet(ws, *_build_strip_rows(
+        cols, rows, widths, header_rows, block_sizes = _build_strip_rows(
             valid, exam, wide, big, subj_cols, big_cols, classes, cfg
-        ), cfg)
+        )
+        _write_sheet(
+            ws, cols, rows, widths, cfg,
+            header_rows=header_rows, block_sizes=block_sizes,
+        )
     else:
         for cls in sorted(classes):
             sub_valid = valid[valid["class_name"] == cls]
             if sub_valid.empty:
                 continue
             ws = wb.create_sheet(str(cls))
-            _write_sheet(ws, *_build_strip_rows(
+            cols, rows, widths, header_rows, block_sizes = _build_strip_rows(
                 sub_valid, exam, wide, big, subj_cols, big_cols, {cls}, cfg
-            ), cfg)
+            )
+            _write_sheet(
+                ws, cols, rows, widths, cfg,
+                header_rows=header_rows, block_sizes=block_sizes,
+            )
     wb.save(path)
     return str(path)
 
@@ -185,6 +214,7 @@ def _write_sheet(
     widths: list[float],
     cfg: ResultsConfig,
     header_rows: set[int] | None = None,
+    block_sizes: dict[int, int] | None = None,
 ) -> None:
     lay = cfg.personal.layout
     for row in rows:
@@ -281,6 +311,82 @@ def _write_sheet(
     if pr.fit_to_width:
         ws.page_setup.fitToWidth = 1
         ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+    # 分页分析：保证同一学生的表头与数据在同一页
+    if header_rows is None:
+        block = 2 + lay.blank_rows_between
+        header_rows = set(range(1, ws.max_row + 1, block))
+        block_sizes = {hr: block for hr in header_rows}
+    _apply_page_breaks(ws, header_rows, block_sizes, cfg)
+
+
+def _rows_per_page(cfg: ResultsConfig) -> int:
+    """按纸张/边距/行高估算每页可容纳行数。"""
+    pr = cfg.personal.print
+    if pr.rows_per_page:
+        return max(int(pr.rows_per_page), 1)  # 配置优先
+    dims = _PAPER_DIMS.get(pr.paper_size, _PAPER_DIMS["A4"])
+    usable_inch = (
+        dims["width"] if pr.orientation == "landscape" else dims["height"]
+    ) - pr.margin["top"] - pr.margin["bottom"]
+    usable_pt = max(usable_inch * 72, 1)
+    row_h = cfg.personal.layout.row_height or 20
+    # 保守余量：估算容量再减 1 行，确保分页符早于 Excel 自动分页边界
+    return max(int(usable_pt // row_h) - 1, 1)
+
+
+def _plan_block_drops(
+    sizes_full: list[int],
+    sizes_no_blank: list[int],
+    capacity: int,
+) -> list[bool]:
+    """规划每个学生块是否删除末尾空行。
+
+    若某块"不含空行刚好等于每页最大行数"（含空行则超页），
+    则删除该块空行留在本页，下一块自然进入下一页。
+    """
+    drops: list[bool] = []
+    used = 0
+    for full, no_blank in zip(sizes_full, sizes_no_blank):
+        if used + full > capacity and used + no_blank == capacity:
+            drops.append(True)
+            used += no_blank
+        else:
+            drops.append(False)
+            used = full if used + full > capacity else used + full
+    return drops
+
+
+def _apply_page_breaks(
+    ws,
+    header_rows: set[int],
+    block_sizes: dict[int, int],
+    cfg: ResultsConfig,
+) -> None:
+    """在每个学生块表头之前插入水平分页符，保证表头与数据同页。"""
+    from openpyxl.worksheet.pagebreak import Break, RowBreak
+
+    capacity = _rows_per_page(cfg)
+    default_size = 2 + cfg.personal.layout.blank_rows_between
+    breaks = RowBreak()
+    used = 0
+    warned = False
+    for hr in sorted(header_rows):
+        size = block_sizes.get(hr, default_size)
+        if size > capacity and not warned:
+            print(
+                f"[提示] 学生块（{size} 行）超过单页容量（{capacity} 行），"
+                f"无法保证表头与数据同页"
+            )
+            warned = True
+        if used + size > capacity and used > 0:
+            # Break.id 为 0-based 行索引：表头行 hr（1-based）前分页
+            breaks.append(Break(id=hr - 1))
+            used = size
+        else:
+            used += size
+    if breaks.brk:
+        ws.row_breaks = breaks
 
 
 def build_personal_strips(
@@ -391,10 +497,13 @@ def _write_merged_strip_file(
     wb = Workbook()
     wb.remove(wb.active)
     ws = wb.create_sheet("个人成绩单")
-    cols, rows, widths, header_rows = _build_merged_rows(
+    cols, rows, widths, header_rows, block_sizes = _build_merged_rows(
         exams, valid_list, questions_list, classes, cfg
     )
-    _write_sheet(ws, cols, rows, widths, cfg, header_rows=header_rows)
+    _write_sheet(
+        ws, cols, rows, widths, cfg,
+        header_rows=header_rows, block_sizes=block_sizes,
+    )
     wb.save(path)
     return str(path)
 
@@ -405,8 +514,12 @@ def _build_merged_rows(
     questions_list: list[pd.DataFrame],
     classes: set[str],
     cfg: ResultsConfig,
-) -> tuple[list[str], list[list[object]], list[float], set[int]]:
-    """构建合并成绩单：每个学生一个表头 + 各场一行数据。"""
+) -> tuple[list[str], list[list[object]], list[float], set[int], dict[int, int]]:
+    """构建合并成绩单：每个学生一个表头 + 各场一行数据。
+
+    排序：场次数量多的在前（完整场次 -> 少一场 -> ...），
+    组内按 班级/平均总分/姓名/考号；不同场数分组间连续，不额外分页。
+    """
     p = cfg.personal
     cols = list(_MERGED_COLS)
     widths = list(p.layout.column_widths["first10"]) + [
@@ -450,12 +563,33 @@ def _build_merged_rows(
     def avg(sid: str) -> float:
         return total_sum.get(sid, 0.0) / max(total_cnt.get(sid, 1), 1)
 
-    students = sorted(all_sids, key=lambda s: (meta[s][0], -avg(s), s))
+    n_exam_count = {
+        s: sum(1 for _, v, _ in per_exam if (v["_sid"] == s).any())
+        for s in all_sids
+    }
+    students = sorted(
+        all_sids,
+        key=lambda s: (
+            -n_exam_count[s],  # 场次数量降序：完整场次在前
+            meta[s][0],        # 班级升序
+            -avg(s),           # 平均总分降序
+            meta[s][1],        # 姓名升序
+            s,                 # 考号升序
+        ),
+    )
+
+    blank = p.layout.blank_rows_between
+    n_exams = [n_exam_count[sid] for sid in students]
+    sizes_full = [1 + k + blank for k in n_exams]
+    sizes_no_blank = [1 + k for k in n_exams]
+    drops = _plan_block_drops(sizes_full, sizes_no_blank, _rows_per_page(cfg))
 
     rows: list[list[object]] = []
     header_rows: set[int] = set()
-    for sid in students:
-        header_rows.add(len(rows) + 1)
+    block_sizes: dict[int, int] = {}
+    for idx, sid in enumerate(students):
+        header_row = len(rows) + 1
+        header_rows.add(header_row)
         rows.append(list(cols))
         cls, name = meta[sid]
         for exam, v, subj_str in per_exam:
@@ -478,6 +612,9 @@ def _build_merged_rows(
                     subj_str.get(sid, ""),
                 ]
             )
-        for _ in range(p.layout.blank_rows_between):
-            rows.append([None] * len(cols))
-    return cols, rows, widths, header_rows
+        if not drops[idx]:
+            for _ in range(blank):
+                rows.append([None] * len(cols))
+        # 块大小 = 表头 1 行 + 数据行 + 空行（+1 补上表头行本身）
+        block_sizes[header_row] = len(rows) - header_row + 1
+    return cols, rows, widths, header_rows, block_sizes

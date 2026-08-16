@@ -32,7 +32,7 @@ _PERSONAL_BORDER_KEYS = {"enabled", "style", "header_top_style"}
 _HF_KEYS = {"enabled", "header", "footer", "fonts"}
 _HF_SECTION_KEYS = {"left", "center", "right"}
 _HF_FONTS_KEYS = {"header_left", "header_center", "header_right", "footer_left"}
-_PRINT_KEYS = {"orientation", "paper_size", "margin", "fit_to_width"}
+_PRINT_KEYS = {"orientation", "paper_size", "margin", "fit_to_width", "rows_per_page"}
 _MARGIN_KEYS = {"top", "bottom", "left", "right"}
 _CS_KEYS = {
     "group_by_teacher", "per_class_sheet", "all_classes_summary",
@@ -141,6 +141,7 @@ class PrintConfig:
         default_factory=lambda: {"top": 0.5, "bottom": 0.5, "left": 0.5, "right": 0.5}
     )
     fit_to_width: bool = True
+    rows_per_page: float | None = None  # 每页行数；缺省 = 按纸张/边距/行高自动计算
 
 
 @dataclass
@@ -458,6 +459,20 @@ def load_results_config(results_dir: str = "config/results") -> ResultsConfig:
     pr.fit_to_width = _as_bool(
         pr_raw.get("fit_to_width", pr.fit_to_width), "personal.print.fit_to_width", path
     )
+    raw_rpp = pr_raw.get("rows_per_page")
+    if raw_rpp is None or str(raw_rpp).strip() == "":
+        pr.rows_per_page = None
+    else:
+        try:
+            pr.rows_per_page = float(raw_rpp)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"{path}: personal.print.rows_per_page 应为正整数，当前为 {raw_rpp!r}"
+            )
+        if pr.rows_per_page <= 0:
+            raise ValueError(
+                f"{path}: personal.print.rows_per_page 应大于 0，当前为 {pr.rows_per_page}"
+            )
 
     # ---- 班级成绩汇总 ----
     cs_raw = _sub(raw, "class_summary", _CS_KEYS, "class_summary", path)

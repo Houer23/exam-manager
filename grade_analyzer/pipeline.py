@@ -286,12 +286,18 @@ def run_results(
     config_path: str = "config/config.yaml",
     semester: str | None = None,
     exam_name: str | None = None,
+    merge_strips: bool = True,
+    generate_summary: bool = True,
+    generate_strips: bool = True,
 ) -> None:
     """单独命令：生成指定学期/考试的班级汇总与个人成绩单。
 
     - exam_name：指定考试名称或序号列表（优先级最高，规则同 --exam）；
     - 未指定时默认列出考试列表，并按全局 current_exam（序号列表）选择，
-      为空则处理学期内全部考试；多场时个人成绩单合并为一份。
+      为空则处理学期内全部考试；多场时个人成绩单合并为一份
+      （merge_strips=False 时每场单独生成）；
+    - generate_summary / generate_strips：控制是否生成班级汇总/个人成绩单
+      （--summary-only / --strips-only）。
     """
     config = load_config(config_path)
     results_cfg = load_results_config(config.results_config_dir)
@@ -308,24 +314,27 @@ def run_results(
         questions = read_question_detail(
             config.parsed_dir, exam, config.parsed_format
         )
-        for p in build_class_summaries(
-            exam, score, questions, config, results_cfg
-        ):
-            print(f"[班级汇总] {p}")
-        strip_inputs.append((exam, score, questions))
-    if len(strip_inputs) >= 2:
-        strip_paths = build_merged_personal_strips(
-            [e for e, _, _ in strip_inputs],
-            [s for _, s, _ in strip_inputs],
-            [q for _, _, q in strip_inputs],
-            results_cfg,
-            config,
-        )
-        for p in strip_paths:
-            print(f"[个人成绩单] {p}")
-    else:
-        for exam, score, questions in strip_inputs:
-            for p in build_personal_strips(
-                exam, score, questions, results_cfg, config
+        if generate_summary:
+            for p in build_class_summaries(
+                exam, score, questions, config, results_cfg
             ):
+                print(f"[班级汇总] {p}")
+        if generate_strips:
+            strip_inputs.append((exam, score, questions))
+    if generate_strips:
+        if len(strip_inputs) >= 2 and merge_strips:
+            strip_paths = build_merged_personal_strips(
+                [e for e, _, _ in strip_inputs],
+                [s for _, s, _ in strip_inputs],
+                [q for _, _, q in strip_inputs],
+                results_cfg,
+                config,
+            )
+            for p in strip_paths:
                 print(f"[个人成绩单] {p}")
+        else:
+            for exam, score, questions in strip_inputs:
+                for p in build_personal_strips(
+                    exam, score, questions, results_cfg, config
+                ):
+                    print(f"[个人成绩单] {p}")
