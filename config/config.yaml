@@ -1,7 +1,7 @@
 # 成绩单分析配置（全局）
 # 修改本文件后重新运行程序即可生效。
 
-# 统计口径
+# ==================== 统计口径 ====================
 analysis:
   # 及格线 / 优秀线按"得分率"计算：及格 = 分数/满分 >= 0.6
   pass_ratio: 0.6
@@ -11,12 +11,7 @@ analysis:
   # 分数段上界（按得分率），生成 90+ / 80-89 / 70-79 / 60-69 / <60
   score_bands: [0.9, 0.8, 0.7, 0.6]
 
-# 统计图配置目录：config/charts/config.yaml（默认值已全部显式列出）
-charts_dir: config/charts
-# 成绩单输出目录（按学期归类）与成绩单配置目录
-results_dir: data/output/results
-results_config_dir: config/results
-
+# ==================== 科目与默认值 ====================
 # 常见科目词表（用于文件名识别）
 subjects:
   - 语文
@@ -50,30 +45,40 @@ default_grade: 高一
 # 原始表无"学校"列时，规范表用此默认学校填充
 default_school: 遂昌中学
 
-# 规范表存储与复用
-parsed_dir: data/parsed
-parsed_format: csv
+# ==================== 当前运行范围 ====================
 # run/merge 默认合并的学期（当前学期），命令行 --semester 可覆盖
 current_semester: 高一第二学期
 # 当前场次序号列表（整数，逗号分隔）：1-n 按日期升序编号，0=第一场，负数=倒数第 |k| 场；
 # 留空 = 处理全部考试；命令行 --exam（名称或序号列表）优先级最高
 current_exam: ''
 
+# ==================== 目录配置 ====================
+
+# --- 配置位置文件夹 ---
 # 考试条目目录：每场考试一个 yaml 文件（下划线开头的文件会被忽略，如模板）
 # 可按学期建子文件夹，子文件夹名作为该文件夹内条目的默认 semester；
 # 条目内显式声明 semester 时以文件声明为优先。
-# 默认成绩单输入目录：考试配置 folder 留空时使用
-input_dir: K:\11. 常规工作\地理教学工作（遂昌中学）\考试管理2025年10月12日
 exams_dir: config/exams
-
 # 班级配置目录：<学期>.yaml（键为默认学校的班级名，level 限 A/B）
 classes_dir: config/classes
 # 学科配置目录：<学期>_<学科>.yaml（教师代号从 A 起连续大写字母）
 subjects_dir: config/subjects
+# 统计图配置目录：config/charts/config.yaml（默认值已全部显式列出）
+charts_dir: config/charts
+# 成绩单配置目录：config/results/config.yaml（默认值已全部显式列出）
+results_config_dir: config/results
+
+# --- 输出/数据位置文件夹 ---
+# 默认成绩单输入目录：考试配置 folder 留空时使用
+input_dir: K:\11. 常规工作\地理教学工作（遂昌中学）\考试管理2025年10月12日
+# 总输出目录（reports/statistics/charts/quality/run-info/merged 等均在其下）
+output_dir: data/output
+# reports 汇总报告文件名
+report_excel_name: 成绩分析汇总.xlsx
+# 规范表存储与复用
+parsed_dir: data/parsed
+parsed_format: csv
 # 名单目录：<学期>.xlsx（原始名单长表）+ <学期>_normalized.xlsx（规范化名单）
 roster_dir: data/roster
-
-# 输出配置
-output:
-  dir: data/output
-  excel_name: 成绩分析汇总.xlsx
+# 成绩单输出目录（按学期归类）
+results_dir: data/output/results

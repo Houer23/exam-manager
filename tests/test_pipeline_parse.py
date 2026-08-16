@@ -53,7 +53,8 @@ def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None):
         "subjects_dir": str(subjects_dir),
         "parsed_dir": str(parsed_dir),
         "default_school": "青田中学",
-        "output": {"dir": str(out_dir or tmp_path / "out"), "excel_name": "成绩分析汇总.xlsx"},
+        "output_dir": str(out_dir or tmp_path / "out"),
+        "report_excel_name": "成绩分析汇总.xlsx",
         "results_dir": str((out_dir or tmp_path / "out") / "results"),
     }
     if roster_dir:

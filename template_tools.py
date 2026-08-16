@@ -86,19 +86,14 @@ separator:
 DEFAULT_GLOBAL = r"""# 成绩单分析配置（全局）
 # 修改本文件后重新运行程序即可生效。
 
-# 统计口径
+# ==================== 统计口径 ====================
 analysis:
   pass_ratio: 0.6
   excellent_ratio: 0.85
   absent_strategy: exclude
   score_bands: [0.9, 0.8, 0.7, 0.6]
 
-# 统计图配置目录：config/charts/config.yaml（默认值已全部显式列出）
-charts_dir: config/charts
-# 成绩单输出目录（按学期归类）与成绩单配置目录
-results_dir: data/output/results
-results_config_dir: config/results
-
+# ==================== 科目与默认值 ====================
 # 常见科目词表（用于文件名识别）
 subjects: [语文, 数学, 外语, 物理, 化学, 生物, 政治, 历史, 地理, 技术]
 
@@ -107,7 +102,8 @@ subject_aliases:
   外语: [英语, 俄语, 日语]
   技术: [信息技术, 通用技术]
 
-# 科目默认值
+# 科目默认值：full_score 缺省时用 default_full_score；
+# objective_full_score / subjective_full_score 缺省表示该科目默认无客观/主观满分
 subject_defaults:
   语文: {full_score: 150}
   数学: {full_score: 150}
@@ -116,28 +112,35 @@ subject_defaults:
 
 default_full_score: 100
 default_grade: 高一
+# 原始表无"学校"列时，规范表用此默认学校填充（占位，请按实际修改）
 default_school: 示例中学
 
-# 规范表存储与复用
-parsed_dir: data/parsed
-parsed_format: csv
+# ==================== 当前运行范围 ====================
 current_semester: 高一第二学期
 # 当前场次序号列表（整数，逗号分隔）：1-n 按日期升序编号，0=第一场，负数=倒数第 |k| 场；
 # 留空 = 处理全部考试；命令行 --exam（名称或序号列表）优先级最高
 current_exam: ""
 
-# 目录配置
-# 默认成绩单输入目录：考试配置 folder 留空时使用
-input_dir: data/input
+# ==================== 目录配置 ====================
+
+# --- 配置位置文件夹 ---
 exams_dir: config/exams
 classes_dir: config/classes
 subjects_dir: config/subjects
-roster_dir: data/roster
+charts_dir: config/charts
+results_config_dir: config/results
 
-# 输出配置
-output:
-  dir: data/output
-  excel_name: 成绩分析汇总.xlsx
+# --- 输出/数据位置文件夹 ---
+# 默认成绩单输入目录：考试配置 folder 留空时使用
+input_dir: data/input
+# 总输出目录（reports/statistics/charts/quality/run-info/merged 等均在其下）
+output_dir: data/output
+# reports 汇总报告文件名
+report_excel_name: 成绩分析汇总.xlsx
+parsed_dir: data/parsed
+parsed_format: csv
+roster_dir: data/roster
+results_dir: data/output/results
 """
 
 DEFAULT_RESULTS = r"""# 成绩单（results）配置 —— 默认值全部显式列出

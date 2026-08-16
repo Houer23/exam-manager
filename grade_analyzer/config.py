@@ -19,10 +19,9 @@ _GLOBAL_KEYS = {
     "default_full_score", "default_grade", "current_semester",
     "current_exam", "default_school", "input_dir", "parsed_dir", "parsed_format",
     "exams_dir", "classes_dir", "subjects_dir", "roster_dir", "charts_dir",
-    "results_dir", "results_config_dir", "output",
+    "results_dir", "results_config_dir", "output_dir", "report_excel_name",
 }
 _ANALYSIS_KEYS = {"pass_ratio", "excellent_ratio", "absent_strategy", "score_bands"}
-_OUTPUT_KEYS = {"dir", "excel_name"}
 _EXAM_KEYS = {
     "name", "format", "type", "importance", "folder", "file", "subject",
     "semester", "date", "full_score", "objective_full_score",
@@ -146,7 +145,9 @@ class AnalysisConfig:
     charts_dir: str = "config/charts"
     results_dir: str = "data/output/results"
     results_config_dir: str = "config/results"
-    output: OutputConfig = field(default_factory=OutputConfig)
+    output_dir: str = "data/output"  # 总输出目录
+    report_excel_name: str = "成绩分析汇总.xlsx"  # reports 汇总报告文件名
+    output: OutputConfig = field(default_factory=OutputConfig)  # 兼容属性（加载后组装）
     # 常见科目词表（用于文件名识别）
     subjects: list[str] = field(
         default_factory=lambda: [
@@ -468,13 +469,6 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
             ),
         )
 
-    out_raw = raw.get("output") or {}
-    if not isinstance(out_raw, dict):
-        raise ValueError(f"{cfg_path}: output 应为映射")
-    unknown = set(out_raw) - _OUTPUT_KEYS
-    if unknown:
-        raise ValueError(f"{cfg_path}: output 下未知配置键 {sorted(unknown)}")
-
     config = AnalysisConfig(
         input_dir=str(raw.get("input_dir", "data/input")),
         exams_dir=str(raw.get("exams_dir", "config/exams")),
@@ -484,9 +478,9 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
         charts_dir=str(raw.get("charts_dir", "config/charts")),
         results_dir=str(raw.get("results_dir", "data/output/results")),
         results_config_dir=str(raw.get("results_config_dir", "config/results")),
-        output=OutputConfig(
-            dir=str(out_raw.get("dir", "data/output")),
-            excel_name=str(out_raw.get("excel_name", "成绩分析汇总.xlsx")),
+        output_dir=str(raw.get("output_dir", "data/output")),
+        report_excel_name=str(
+            raw.get("report_excel_name", "成绩分析汇总.xlsx")
         ),
         subjects=subjects,
         subject_aliases=subject_aliases,
@@ -502,6 +496,9 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
         excellent_ratio=excellent_ratio,
         absent_strategy=absent_strategy,
         score_bands=score_bands,
+    )
+    config.output = OutputConfig(
+        dir=config.output_dir, excel_name=config.report_excel_name
     )
     config.exams = _load_exams(
         config.exams_dir, cfg_path, subject_aliases, config.input_dir
