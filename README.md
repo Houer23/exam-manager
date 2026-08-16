@@ -8,8 +8,9 @@
 - **清洗与排位**：考号/总分校验、班级名称规范化、学校过滤、班次/校次真实排位、客观题单选/多选区分；
 - **统计报告**：单场统计工作簿（科目统计、分数段分布、个人排名、班级对比、教师对比，多 sheet + 内嵌图表）；
 - **班级汇总**：按任课教师分文件、按班级分 sheet，含页眉页脚、条件格式；
-- **个人成绩单**：按教师/全部班级/自定义范围生成，小题分列或按大题合并，样式可配置；
-- **统计图**：按班级层次/任课教师分组的组合图（半提琴图 + 中位数/平均分/上下四分位折线）；
+- **个人成绩单**：按教师/全部班级/自定义范围生成，小题分列或按大题合并；多场合并为一份（每生一个表头、每场一行），自动分页保证表头与数据同页，样式可配置；
+- **统计图**：按班级层次/任课教师分组的组合图（半提琴图 + 中位数/平均分/上下四分位折线），支持按 班级×考试 绘制（`--class` / `--per-class`）；
+- **考试条目管理**：`exam add / update / remove / list` 维护考试配置（交互式录入、重名冲突检测、删除标记），`config get/set` 管理全局配置；
 - **跨场分析**：合并规范表为长表/宽表，支持多学期、按考试类型筛选、基线场次对比；
 - **名单核对**：名单清洗（考号/班级规范化）与考试按七选三过滤核对；
 - **可配置化**：全局、图表、成绩单配置独立成文件，模板可生成与同步。
@@ -94,6 +95,9 @@ pip install -r requirements.txt
 | `format` | `weekly` / `joint`，留空自动识别 |
 | `type` | 考试类型（默认/学考/模考…），联合分析筛选用 |
 | `full_score` 等 | 总分/客观/主观满分，留空用科目默认值 |
+| `filter_by_selection` | 名单核对是否按七选三过滤，默认 `true` |
+
+也可用 `exam add` 交互式录入（参数式或逐项问答，必填项优先、其余按模板顺序，满分等默认值取自全局 `subject_defaults`）。
 
 ### 班级与学科配置
 
@@ -102,7 +106,7 @@ pip install -r requirements.txt
 
 ### 图表与成绩单配置
 
-- `config/charts/config.yaml`：统计图分组、指标、颜色、字体、坐标轴等；
+- `config/charts/config.yaml`：统计图分组、指标、颜色、字体、坐标轴（含横轴扩展系数 `xlim_factor`）、半提琴宽度（`violin.width`）等；
 - `config/results/config.yaml`：个人成绩单范围/样式、班级汇总页眉页脚/字体/边框等。
 
 ### 配置文件修改注意事项
@@ -145,9 +149,14 @@ python -m grade_analyzer.cli run                     # 完整流程：统计/汇
 python -m grade_analyzer.cli run --exam <考试名称>    # 只处理指定考试
 python -m grade_analyzer.cli run --exam 1,3          # 按日期升序序号选择多场合并分析
 python -m grade_analyzer.cli results --exam <考试名称> # 只生成班级汇总与个人成绩单
+python -m grade_analyzer.cli results --summary-only   # 只要班级成绩汇总
+python -m grade_analyzer.cli results --strips-only    # 只要个人成绩单
+python -m grade_analyzer.cli results --no-merge-strips # 多场时个人成绩单不合并
+python -m grade_analyzer.cli charts [--exam ...]      # 单独生成统计图
+python -m grade_analyzer.cli charts --class 10,11 [--per-class]  # 按 班级×考试 绘制（班级数字/区间 n-m）
 ```
 
-`results` 只读规范表，**运行前必须先 `parse`**；可用 `exam list --results-ready` 确认哪些场次已就绪。原始成绩文件更新后规范表会标记"已过期"，需重新 `parse`（或 `parse --reparse` 强制重解析）再运行 results。一句话流程：**放数据 → exam add → check → parse → exam list --results-ready → results**。
+`results` 与 `charts` 只读规范表，**运行前必须先 `parse`**（未解析会提示"请先运行 parse"并正常结束）；可用 `exam list --results-ready` 确认哪些场次已就绪。原始成绩文件更新后规范表会标记"已过期"，需重新 `parse`（或 `parse --reparse` 强制重解析）。一句话流程：**放数据 → exam add → check → parse → exam list --results-ready → results / charts**。
 
 多场考试（≥2）时：merged 长表/宽表与成绩分析汇总文件名标注日期范围（如 `merged_long_20260325-20260420.csv`、`成绩分析汇总_20260325-20260420.xlsx`），单场不做 merge 落盘、报告标注该场日期；个人成绩单合并为一份（每生一个表头，每场考试一行，主观题列为各大题得分竖线合并字符串）。
 
@@ -166,13 +175,14 @@ data/output/
 ├─ merged/        # 合并长表/宽表
 ├─ reports/       # 跨场 Excel 汇总报告
 ├─ statistics/    # 单场统计工作簿（按学期，一场一个 xlsx）
-├─ charts/        # 统计图 PNG
+├─ charts/        # 统计图 PNG（按<分组>_<日期8位>_<考试名>.png、按班级_<日期范围>_<班级标签>.png）
 ├─ quality/       # check 报告、数据质量、名单核对
 ├─ run-info/      # 每次 run 的配置快照/考试列表/日志（含 latest）
 └─ results/       # 成绩单输出
    └─ <学期>/
       ├─ <考试>/<考试>_<教师>_班级成绩汇总.xlsx
       └─ <yyyymmdd>_<考试>_<标签>_个人成绩单.xlsx
+         <日期范围>_<标签>_个人成绩单.xlsx   # 多场合并版
 ```
 
 ## 模板工具
@@ -199,4 +209,4 @@ python -m pytest tests -q
 - `data/input/`、`data/parsed/`、`data/roster/`、`data/output/` 均被 `.gitignore` 忽略，原始成绩、名单（含考号/选课）与生成结果不入库；
 - `config/` 中可能含真实教师姓名等信息，仓库应保持私有；开源前需脱敏；
 - 所有文本文件统一 CRLF 行尾（`.gitattributes` 已强制）；
-- `exam add / update / remove` 目前为占位未实现，新增考试请手动复制模板 yaml。
+- 考试条目（`config/exams/`）、班级与学科具体配置（`config/classes/`、`config/subjects/`）仅模板入库，具体配置本地维护；新增考试用 `exam add`。
