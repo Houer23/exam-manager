@@ -8,9 +8,12 @@ import yaml
 
 from grade_analyzer.config import load_config
 from grade_analyzer.config_ops import (
+    add_exam,
     get_config_value,
     list_exams,
+    remove_exam,
     set_config_value,
+    update_exam,
     validate_config_value,
 )
 
@@ -148,7 +151,14 @@ def test_list_exams_stale_parsed(tmp_path):
     _write_exam(exams_dir, "高一第二学期", "周测", name="高一下地理周测", folder=str(raw_dir))
     _write_parsed(tmp_path, "高一第二学期", "高一下地理周测")
     # 原始文件后创建 => 解析表早于原始文件 => 已过期
-    (raw_dir / "周测.xlsx").write_text("raw", encoding="utf-8")
+    raw_file = raw_dir / "周测.xlsx"
+    raw_file.write_text("raw", encoding="utf-8")
+    # 显式后移时间戳，避免文件系统时间精度导致同 tick 误判为"已解析"
+    import os
+    import time
+
+    later = time.time() + 2
+    os.utime(raw_file, (later, later))
 
     cfg_path = str(_write_global(tmp_path, exams_dir))
     df = list_exams(cfg_path)
@@ -305,3 +315,151 @@ def test_set_invalid_combination_keeps_original(tmp_path):
         set_config_value(str(cfg_path), "default_grade", "高二")
     assert cfg_path.read_text(encoding="utf-8") == before
     assert not Path(str(cfg_path) + ".tmp").exists()
+
+
+def test_add_exam_writes_entry(tmp_path):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(tmp_path, exams_dir, current_semester="高一第二学期")
+    add_exam(
+        str(cfg_path),
+        file="地理原始数据.xlsx",
+        name="期中联考",
+        subject="地理",
+        semester="高一第二学期",
+        fmt="joint",
+        date="2026-04-20",
+        full_score=100.0,
+    )
+    cfg = load_config(str(cfg_path))
+    assert len(cfg.exams) == 1
+    assert cfg.exams[0].name == "高一下地理期中联考"
+    target = exams_dir / "高一第二学期" / "地理期中联考.yaml"  # 文件名不带学期
+    assert target.is_file()
+    text = target.read_text(encoding="utf-8")
+    assert "name: 高一下地理期中联考" in text
+    assert "file: 地理原始数据.xlsx" in text
+
+
+def test_add_exam_duplicate_raises(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(
+        exams_dir, "高一第二学期", "联考",
+        name="高一下地理期中联考", subject="地理",
+    )
+    cfg_path = _write_global(tmp_path, exams_dir)
+    with pytest.raises(ValueError, match="重复"):
+        add_exam(
+            str(cfg_path), file="x.xlsx", name="期中联考",
+            subject="地理", semester="高一第二学期",
+        )
+
+
+def test_add_exam_interactive(tmp_path, monkeypatch):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(tmp_path, exams_dir, current_semester="高一第二学期")
+    answers = iter(["地理原始数据.xlsx", "", "地理", "期中联考"] + [""] * 14)
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    add_exam(str(cfg_path))
+    cfg = load_config(str(cfg_path))
+    assert len(cfg.exams) == 1
+    assert cfg.exams[0].name == "高一下地理期中联考"
+    assert cfg.exams[0].question_display == "split"  # 交互默认值生效
+    assert cfg.exams[0].show_big_questions is False
+    # 满分默认值来自全局 subject_defaults（地理 100/50/50）
+    assert cfg.exams[0].full_score == 100.0
+    assert cfg.exams[0].objective_full_score == 50.0
+    assert cfg.exams[0].subjective_full_score == 50.0
+
+
+def test_add_exam_interactive_all_fields(tmp_path, monkeypatch):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(tmp_path, exams_dir, current_semester="高一第二学期")
+    answers = iter(
+        [
+            "测试.xlsx", "高一第一学期", "地理", "测试",
+            "2026-05-01", "", "限时练一", "merged", "true", "weekly", "模考",
+            "联考", "120", "60", "60", "高一", "", "false",
+        ]
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    add_exam(str(cfg_path))
+    e = load_config(str(cfg_path)).exams[0]
+    assert e.name == "高一上地理测试"
+    assert e.semester == "高一第一学期"
+    assert e.date == "2026-05-01"
+    assert e.short_name == "限时练一"
+    assert e.question_display == "merged"
+    assert e.show_big_questions is True
+    assert e.format == "weekly"
+    assert e.type == "模考"
+    assert e.importance == "联考"
+    assert e.full_score == 120.0
+    assert e.objective_full_score == 60.0
+    assert e.subjective_full_score == 60.0
+    assert e.default_grade == "高一"
+    assert e.filter_by_selection is False
+
+
+def test_update_exam_moves_semester(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(
+        exams_dir, "高一第二学期", "联考",
+        name="高一下地理期中联考", subject="地理",
+        file="地理原始数据.xlsx", full_score=100,
+    )
+    cfg_path = _write_global(tmp_path, exams_dir)
+    update_exam(
+        str(cfg_path), "高一下地理期中联考",
+        semester="高一第一学期", full_score=120.0,
+    )
+    assert not (exams_dir / "高一第二学期" / "联考.yaml").exists()
+    assert (exams_dir / "高一第一学期" / "联考.yaml").exists()
+    cfg = load_config(str(cfg_path))
+    assert cfg.exams[0].semester == "高一第一学期"
+    assert cfg.exams[0].name == "高一上地理期中联考"  # 规范名随学期更新
+    assert cfg.exams[0].full_score == 120.0
+
+
+def test_update_exam_not_found_raises(tmp_path):
+    exams_dir = tmp_path / "exams"
+    exams_dir.mkdir()
+    cfg_path = _write_global(tmp_path, exams_dir)
+    with pytest.raises(ValueError, match="不存在"):
+        update_exam(str(cfg_path), "不存在")
+
+
+def test_remove_exam_marks_deleted(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(
+        exams_dir, "高一第二学期", "联考",
+        name="高一下地理期中联考", subject="地理", file="地理原始数据.xlsx",
+    )
+    parsed = tmp_path / "parsed"
+    exam_dir = parsed / "高一第二学期" / "高一下地理期中联考"
+    exam_dir.mkdir(parents=True)
+    (exam_dir / "score_summary.csv").write_text("x", encoding="utf-8")
+    cfg_path = _write_global(tmp_path, exams_dir)
+
+    remove_exam(str(cfg_path), "高一下地理期中联考")
+    assert not (exams_dir / "高一第二学期" / "联考.yaml").exists()
+    assert len(load_config(str(cfg_path)).exams) == 0
+    assert (exam_dir / ".deleted").is_file()  # 缓存保留但已标记
+
+
+def test_list_exams_shows_deleted(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(
+        exams_dir, "高一第二学期", "联考",
+        name="高一下地理期中联考", subject="地理", file="地理原始数据.xlsx",
+    )
+    parsed = tmp_path / "parsed"
+    exam_dir = parsed / "高一第二学期" / "高一下地理期中联考"
+    exam_dir.mkdir(parents=True)
+    (exam_dir / ".deleted").write_text("deleted", encoding="utf-8")
+    cfg_path = _write_global(tmp_path, exams_dir)
+
+    df = list_exams(str(cfg_path))
+    assert df.iloc[0]["删除"] == "已删除"

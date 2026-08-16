@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 
 # 提前设置缓存目录（避免沙箱无法写入用户主目录下的 .matplotlib）
@@ -25,6 +26,7 @@ import seaborn as sns
 
 from .chart_config import METRIC_NAMES, ChartsConfig
 from .config import ExamConfig, OutputConfig
+from .consolidate import date_range_suffix
 from .outputs import type_dir
 
 _METRIC_COL = {
@@ -83,9 +85,8 @@ def build_group_chart(
     ticks = list(range(start, int(xmax) + 1, step))
 
     sort_col = _SORT_COL[charts_cfg.sort_metric]
-    groups = sorted(metrics[group_col].dropna().unique())
     ordered: list[tuple[object, pd.DataFrame]] = []
-    for group in groups:
+    for group in _order_groups(metrics, group_col, sort_col):
         sub = metrics[metrics[group_col] == group].sort_values(
             sort_col, ascending=False
         )
@@ -132,6 +133,7 @@ def build_group_chart(
                 color=color,
                 ax=ax,
                 linewidth=charts_cfg.violin.linewidth,
+                width=charts_cfg.violin.width,
             )
 
     if charts_cfg.show_lines:
@@ -148,7 +150,7 @@ def build_group_chart(
                     marker=style.marker,
                     linewidth=1.0,
                     markersize=4.0,
-                    label=metric if group == groups[0] else None,
+                        label=metric if group == ordered[0][0] else None,
                 )
 
     # 统计标注：左端 ave/std 两行 + 点位旁 M/Q1/Q3
@@ -194,7 +196,7 @@ def build_group_chart(
                 linewidth=charts_cfg.separator.linewidth,
             )
 
-    ax.set_xlim(xmin, xmax * 1.3)
+    ax.set_xlim(xmin, xmax * charts_cfg.axis.xlim_factor)
     ax.set_xticks(ticks)
     ax.tick_params(axis="both", labelsize=charts_cfg.font.tick_size)
     ax.set_ylim(n - 0.5, -0.5)
@@ -218,7 +220,213 @@ def build_group_chart(
 
     out_dir = type_dir(output, "charts") / (exam.semester or "")
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{exam.name}_按{group_col}.{charts_cfg.format}"
+    date_part = str(exam.date or "").replace("-", "")
+    middle = f"{date_part}_" if date_part else ""
+    path = out_dir / f"按{group_col}_{middle}{exam.name}.{charts_cfg.format}"
+    fig.savefig(path, dpi=charts_cfg.dpi, bbox_inches="tight")
+    plt.close(fig)
+    return str(path)
+
+
+def _order_groups(
+    metrics: pd.DataFrame, group_col: str, sort_col: str
+) -> list[object]:
+    """组间排序：按各组平均指标降序（指标与方向同组内排序）。"""
+    groups = sorted(metrics[group_col].dropna().unique())
+    return sorted(
+        groups,
+        key=lambda g: metrics[metrics[group_col] == g][sort_col].mean(),
+        reverse=True,
+    )
+
+
+def _class_label(classes: list[str]) -> str:
+    """班级标签：单班级用规范全称；多班级用 <年级><序号1>、<序号2>...班。"""
+    if len(classes) == 1:
+        return classes[0]
+    grade = ""
+    nums: list[str] = []
+    for c in classes:
+        m = re.match(r"^(.*?)(\d+)班$", c)
+        if not m:
+            return "+".join(classes)  # 无法解析则回退
+        grade = grade or m.group(1)
+        nums.append(m.group(2))
+    return f"{grade}" + "、".join(nums) + "班"
+
+
+def build_exam_series_chart(
+    exams: list[ExamConfig],
+    scores: list[pd.DataFrame],
+    classes: list[str],
+    charts_cfg: ChartsConfig,
+    output: OutputConfig,
+) -> str:
+    """按 班级×考试 绘制组合图：纵轴为 班级×考试 组合，横轴为成绩。
+
+    按班级分组（组内为考试，日期升序），每组合一个半提琴；
+    指标折线跨考试连续、跨班级断开；绘图方式与原统计图相同。
+    """
+    plt.rcParams["font.sans-serif"] = list(charts_cfg.font.family)
+    plt.rcParams["axes.unicode_minus"] = False
+
+    axis = charts_cfg.axis
+    if axis.range_mode == "fixed":
+        xmin, xmax = axis.fixed_min, axis.fixed_max
+    elif axis.range_mode == "custom":
+        xmin, xmax = axis.custom_min, axis.custom_max
+    else:
+        full = exams[0].full_score or 100.0
+        xmin, xmax = full * 0.1, full
+    step = axis.tick_step
+    start = int(np.ceil(xmin / step)) * step
+    ticks = list(range(start, int(xmax) + 1, step))
+
+    # 每个 班级×考试 组合的指标（按班级分组、组内考试日期升序）
+    rows: list[dict] = []
+    labels: list[str] = []
+    valid_by_exam: list[pd.DataFrame] = []
+    class_of_pos: list[str] = []
+    group_boundaries: list[int] = []
+    for class_name in classes:
+        start = len(rows)
+        for exam, score in zip(exams, scores):
+            valid = score[
+                (score["class_name"] == class_name)
+                & score["total_score"].notna()
+            ]
+            if valid.empty:
+                continue
+            arr = valid["total_score"].to_numpy(dtype=float)
+            rows.append(
+                {
+                    "人数": len(arr),
+                    "平均分": arr.mean(),
+                    "标准差": arr.std(ddof=1),
+                    "中位数": float(np.median(arr)),
+                    "Q1": float(np.percentile(arr, 25)),
+                    "Q3": float(np.percentile(arr, 75)),
+                }
+            )
+            labels.append(f"{class_name}\n{exam.effective_short_name}")
+            valid_by_exam.append(valid)
+            class_of_pos.append(class_name)
+        if len(rows) > start:
+            group_boundaries.append(len(rows))
+    if not rows:
+        return ""
+    metrics = pd.DataFrame(rows)
+    n = len(metrics)
+
+    fig, ax = plt.subplots(
+        figsize=(
+            charts_cfg.figure_width,
+            max(charts_cfg.min_figure_height, charts_cfg.row_height * n),
+        )
+    )
+
+    if charts_cfg.colors.palette == "tab10":
+        palette = plt.cm.tab10.colors
+    else:
+        palette = sns.color_palette()
+    class_color = {
+        c: palette[i % len(palette)] for i, c in enumerate(classes)
+    }
+
+    if charts_cfg.show_violin:
+        for i, (valid, class_name) in enumerate(zip(valid_by_exam, class_of_pos)):
+            tmp = valid.copy()
+            tmp["ypos"] = i
+            sns.violinplot(
+                data=tmp,
+                x="total_score",
+                y="ypos",
+                orient="h",
+                split=charts_cfg.violin.split,
+                fill=charts_cfg.violin.fill,
+                inner=charts_cfg.violin.inner,
+                color=class_color[class_name],
+                ax=ax,
+                linewidth=charts_cfg.violin.linewidth,
+                width=charts_cfg.violin.width,
+            )
+
+    if charts_cfg.separator.show:
+        for boundary in group_boundaries[:-1]:
+            ax.axhline(
+                y=boundary - 0.5,
+                color=charts_cfg.separator.color,
+                linestyle=charts_cfg.separator.style,
+                linewidth=charts_cfg.separator.linewidth,
+            )
+
+    if charts_cfg.show_lines:
+        for metric in METRIC_NAMES:
+            style = charts_cfg.colors.metrics[metric]
+            col = _METRIC_COL[metric]
+            for class_name in classes:
+                idx = [
+                    i for i, c in enumerate(class_of_pos) if c == class_name
+                ]
+                if not idx:
+                    continue
+                ax.plot(
+                    [metrics.loc[i, col] for i in idx],
+                    idx,
+                    color=style.color,
+                    marker=style.marker,
+                    linewidth=1.0,
+                    markersize=4.0,
+                    label=metric if class_name == classes[0] else None,
+                )
+
+    annot = charts_cfg.annotations
+    text_move = annot.text_y_offset
+    for i, row in metrics.iterrows():
+        ax.text(
+            xmin + annot.ave_std_x_offset,
+            i,
+            f"ave:{row['平均分']:>{annot.ave_width}{annot.ave_std_format}}\n"
+            f"std:{row['标准差']:>{annot.ave_width}{annot.ave_std_format}}",
+            va="center",
+            size=charts_cfg.font.annot_size,
+        )
+        ax.text(
+            row["中位数"], i + text_move,
+            f"M:{row['中位数']:{annot.point_format}}",
+            ha="center", size=charts_cfg.font.annot_size,
+        )
+        ax.text(
+            row["Q1"], i + text_move,
+            f"Q1:{row['Q1']:{annot.point_format}}",
+            ha="right", size=charts_cfg.font.annot_size,
+        )
+        ax.text(
+            row["Q3"], i + text_move,
+            f"Q3:{row['Q3']:{annot.point_format}}",
+            ha="left", size=charts_cfg.font.annot_size,
+        )
+
+    ax.set_xlim(xmin, xmax * charts_cfg.axis.xlim_factor)
+    ax.set_xticks(ticks)
+    ax.tick_params(axis="both", labelsize=charts_cfg.font.tick_size)
+    ax.set_ylim(n - 0.5, -0.5)
+    ax.set_yticks(list(range(n)))
+    ax.set_yticklabels(labels)
+    ax.set_xlabel("成绩", size=charts_cfg.font.label_size)
+    ax.set_ylabel("班级·考试", size=charts_cfg.font.label_size)
+    ax.set_title(
+        f"{'+'.join(classes)} 多场考试组合图（半提琴+指标）",
+        size=charts_cfg.font.title_size,
+    )
+    if charts_cfg.show_lines:
+        ax.legend(loc="lower right", fontsize=charts_cfg.font.legend_size)
+
+    out_dir = type_dir(output, "charts") / (exams[0].semester or "")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    suffix = date_range_suffix(exams)
+    class_label = _class_label(classes)
+    path = out_dir / f"按班级_{suffix}_{class_label}.{charts_cfg.format}"
     fig.savefig(path, dpi=charts_cfg.dpi, bbox_inches="tight")
     plt.close(fig)
     return str(path)

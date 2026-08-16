@@ -28,7 +28,7 @@ _TOP_KEYS = {
 }
 _AXIS_KEYS = {
     "range_mode", "fixed_min", "fixed_max", "custom_min",
-    "custom_max", "tick_step", "y_label",
+    "custom_max", "tick_step", "y_label", "xlim_factor",
 }
 _FONT_KEYS = {
     "family", "title_size", "label_size", "tick_size",
@@ -36,7 +36,7 @@ _FONT_KEYS = {
 }
 _COLORS_KEYS = {"palette", "metrics"}
 _METRIC_KEYS = {"color", "marker"}
-_VIOLIN_KEYS = {"split", "fill", "inner", "linewidth"}
+_VIOLIN_KEYS = {"split", "fill", "inner", "linewidth", "width"}
 _ANNOT_KEYS = {
     "ave_std_x_offset", "ave_width", "text_y_offset",
     "ave_std_format", "point_format",
@@ -55,6 +55,7 @@ class AxisConfig:
     custom_max: float = 95.0
     tick_step: int = 10
     y_label: str = "class_name"  # class_name / row_number
+    xlim_factor: float = 1.1  # 横轴右侧扩展系数（为指标标注预留空间）
 
 
 @dataclass
@@ -102,6 +103,7 @@ class ViolinConfig:
     fill: bool = False
     inner: str | None = "quart"
     linewidth: float = 1.0
+    width: float = 0.8  # 半提琴图宽度（占单位行高比例，用于为标注留出空间）
 
 
 @dataclass
@@ -242,6 +244,9 @@ def load_charts_config(charts_dir: str = "config/charts") -> ChartsConfig:
     a.y_label = str(axis_raw.get("y_label", a.y_label))
     if a.y_label not in _YLABEL_OPTIONS:
         raise ValueError(f"{path}: axis.y_label 应为 {sorted(_YLABEL_OPTIONS)}")
+    a.xlim_factor = _as_float(
+        axis_raw.get("xlim_factor", a.xlim_factor), "axis.xlim_factor", path, 1.0
+    )
 
     font_raw = raw.get("font") or {}
     if not isinstance(font_raw, dict):
@@ -287,6 +292,9 @@ def load_charts_config(charts_dir: str = "config/charts") -> ChartsConfig:
     v = cfg.violin
     v.split = _as_bool(violin_raw.get("split", v.split), "violin.split", path)
     v.fill = _as_bool(violin_raw.get("fill", v.fill), "violin.fill", path)
+    v.width = _as_float(
+        violin_raw.get("width", v.width), "violin.width", path, 0.1
+    )
     inner = violin_raw.get("inner", v.inner)
     if isinstance(inner, str) and inner.strip().lower() in ("none", ""):
         inner = None

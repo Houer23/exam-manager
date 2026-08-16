@@ -15,9 +15,21 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from .config import AnalysisConfig, ExamConfig, load_config
-from .detect import resolve_exam_name
-from .storage import is_parsed_fresh, parsed_exam_dir
+from .config import (
+    AnalysisConfig,
+    ExamConfig,
+    _load_exam_file,
+    discover_exam_files,
+    load_config,
+    normalize_exam_name,
+    semester_abbr,
+)
+from .detect import (
+    detect_subject_from_filename,
+    extract_exam_name_from_filename,
+    resolve_exam_name,
+)
+from .storage import is_exam_deleted, is_parsed_fresh, mark_exam_deleted, parsed_exam_dir
 
 # 全局配置可修改键白名单：键 -> 值类型（number/text）
 CONFIG_KEY_WHITELIST: dict[str, str] = {
@@ -111,19 +123,146 @@ def add_exam(
     subjective_full_score: float | None = None,
     default_grade: str | None = None,
     sheet: str | None = None,
+    short_name: str | None = None,
+    question_display: str | None = None,
+    show_big_questions: bool | None = None,
+    filter_by_selection: bool | None = None,
 ) -> None:
-    """新增考试条目，写入 config/exams/<学期>/<考试名称>.yaml。
+    """新增考试条目，写入 config/exams/<学期>/<文件名>.yaml。
 
     参数式：传入 folder/file 等参数直接生成条目；
-    交互式：file 为空时逐个问答必填项与建议默认值。
-
-    TODO:
-    1. 识别/确认：考试名称、科目、格式（可复用 detect 模块）；
-    2. 冲突检测：同名考试已存在则报错；
-    3. 原子写入条目文件；semester 决定子目录；
-    4. 写入后重新加载配置并输出校验结果。
+    交互式：file 为空时对模板全部配置项逐一问答，必填项（file/semester/subject/name）优先。
+    文件名用不带学期的规范名称（学科+考试名）。
     """
-    raise NotImplementedError("exam add 将在后续实现")
+    config = load_config(config_path)
+    interactive = file is None
+    if interactive:
+        # 必填项优先
+        file = _ask("成绩文件名（必填）", None, required=True)
+        semester = _ask(
+            "学期全称（必填）", None,
+            default=config.current_semester, required=True,
+        )
+        subject = _ask(
+            "科目（必填）", None,
+            default=detect_subject_from_filename(
+                file, config.subjects, config.subject_aliases
+            ),
+            required=True,
+        )
+        defaults = config.defaults_for(subject) if subject else None
+        name = _ask(
+            "考试名称（必填）", None,
+            default=extract_exam_name_from_filename(file), required=True,
+        )
+        # 其余配置项按模板顺序逐一输入（回车用默认值）
+        date = _ask("考试日期（YYYY-MM-DD）", None, default=date)
+        folder = _ask("成绩文件所在文件夹", None, default=config.input_dir)
+        short_name = _ask("考试简称（留空=用考试全称）", None)
+        question_display = _ask(
+            "小题呈现（split/merged）", None, default="split"
+        )
+        show_big_questions = _ask(
+            "是否显示主观大题汇总（true/false）", None, default="false"
+        )
+        fmt = _ask("格式（weekly/joint，留空=自动识别）", None)
+        exam_type = _ask("考试类型", None, default="默认")
+        importance = _ask("重要度（平时/联考，留空=由格式推导）", None)
+        full_score = _ask(
+            "总分满分（留空=科目默认）", None,
+            default=_fmt_default(defaults.full_score) if defaults else None,
+        )
+        objective_full_score = _ask(
+            "客观题满分（留空=科目默认）", None,
+            default=_fmt_default(defaults.objective_full_score) if defaults else None,
+        )
+        subjective_full_score = _ask(
+            "主观题满分（留空=科目默认）", None,
+            default=_fmt_default(defaults.subjective_full_score) if defaults else None,
+        )
+        default_grade = _ask("默认年级", None, default=config.default_grade)
+        sheet = _ask("Sheet 名（留空=自动选择）", None)
+        filter_by_selection = _ask(
+            "名单核对按七选三过滤（true/false）", None, default="true"
+        )
+    else:
+        if not semester:
+            raise ValueError("semester 必填（参数或交互输入）")
+        if subject is None:
+            subject = detect_subject_from_filename(
+                file, config.subjects, config.subject_aliases
+            )
+
+    raw_name = name
+    if not raw_name:
+        raw_name = extract_exam_name_from_filename(file)
+    full_name = normalize_exam_name(
+        raw_name, semester, subject, config.subject_aliases
+    )
+    if not full_name:
+        full_name = _ask("考试名称（必填）", None, required=True)
+        full_name = normalize_exam_name(
+            full_name, semester, subject, config.subject_aliases
+        )
+
+    if not subject:
+        raise ValueError("科目（subject）必填")
+    if not full_name:
+        raise ValueError("考试名称（name）必填")
+
+    existing = _exam_file_map(config)
+    if full_name in existing:
+        raise ValueError(f"考试名称重复: {full_name}")
+
+    folder = folder or config.input_dir
+    abbr = semester_abbr(semester)
+    stem = full_name[len(abbr):] if abbr and full_name.startswith(abbr) else full_name
+    exam_dir = Path(config.exams_dir) / semester
+    exam_dir.mkdir(parents=True, exist_ok=True)
+    target = exam_dir / f"{stem}.yaml"
+    if target.exists():
+        raise ValueError(f"条目文件已存在: {target}")
+
+    def _to_float(v):
+        if v in (None, ""):
+            return None
+        return float(v)
+
+    def _to_bool(v):
+        if v in (None, ""):
+            return None
+        if isinstance(v, bool):
+            return v
+        return str(v).strip().lower() in ("true", "1", "yes", "是")
+
+    fields = [
+        ("subject", subject),
+        ("semester", semester),
+        ("date", date),
+        ("folder", folder),
+        ("file", file),
+        ("name", full_name),
+        ("short_name", short_name),
+        ("question_display", question_display),
+        ("show_big_questions", _to_bool(show_big_questions)),
+        ("format", fmt),
+        ("type", exam_type or "默认"),
+        ("importance", importance),
+        ("full_score", _to_float(full_score)),
+        ("objective_full_score", _to_float(objective_full_score)),
+        ("subjective_full_score", _to_float(subjective_full_score)),
+        ("default_grade", default_grade),
+        ("sheet", sheet),
+        ("filter_by_selection", _to_bool(filter_by_selection)),
+    ]
+    data = {k: v for k, v in fields if v not in (None, "")}
+    _write_exam_entry(target, data, config, semester)
+    try:
+        load_config(config_path)  # 全量校验
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+    print(f"[完成] 已新增考试条目: {full_name} -> {target}")
 
 
 def update_exam(
@@ -143,21 +282,134 @@ def update_exam(
     default_grade: str | None = None,
     sheet: str | None = None,
 ) -> None:
-    """修改考试条目字段；semester 变更时自动移动文件到新学期目录。
+    """修改考试条目字段；semester 变更时自动移动文件到新学期目录。"""
+    config = load_config(config_path)
+    existing = _exam_file_map(config)
+    if name not in existing:
+        raise ValueError(f"考试条目不存在: {name}")
+    exam, path = existing[name]
 
-    TODO: 定位条目文件、合并修改、原子写入、修改后校验。
-    """
-    raise NotImplementedError("exam update 将在后续实现")
+    with open(path, encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh) or {}
+    updates = {
+        "folder": folder, "file": file, "subject": subject, "date": date,
+        "format": fmt, "type": exam_type, "importance": importance,
+        "full_score": full_score,
+        "objective_full_score": objective_full_score,
+        "subjective_full_score": subjective_full_score,
+        "default_grade": default_grade, "sheet": sheet,
+    }
+    for k, v in updates.items():
+        if v is not None:
+            raw[k] = v
+
+    new_semester = semester or exam.semester
+    target = path
+    if new_semester != exam.semester:
+        raw["semester"] = new_semester
+        old_abbr = semester_abbr(exam.semester)
+        base = raw.get("name") or exam.name or ""
+        if old_abbr and base.startswith(old_abbr):
+            base = base[len(old_abbr):]
+        raw["name"] = normalize_exam_name(
+            base,
+            new_semester,
+            raw.get("subject") or exam.subject,
+            config.subject_aliases,
+        )
+        new_dir = Path(config.exams_dir) / new_semester
+        new_dir.mkdir(parents=True, exist_ok=True)
+        target = new_dir / path.name
+        if target.exists():
+            raise ValueError(f"目标文件已存在: {target}")
+
+    backup = path.read_text(encoding="utf-8")
+    _write_exam_entry(target, raw, config, new_semester)
+    if target != path and path.exists():
+        path.unlink()
+    try:
+        load_config(config_path)
+    except Exception:
+        path.write_text(backup, encoding="utf-8")  # 回滚
+        if target != path and target.exists():
+            target.unlink()
+        raise
+    print(f"[完成] 已更新考试条目: {name}")
 
 
 def remove_exam(config_path: str, name: str) -> None:
     """删除考试条目文件。
 
     保留规范表缓存，并在缓存目录写入删除标记（storage.mark_exam_deleted）。
-
-    TODO: 定位条目文件删除；标记缓存；修改后校验。
     """
-    raise NotImplementedError("exam remove 将在后续实现")
+    config = load_config(config_path)
+    existing = _exam_file_map(config)
+    if name not in existing:
+        raise ValueError(f"考试条目不存在: {name}")
+    exam, path = existing[name]
+
+    backup = path.read_text(encoding="utf-8")
+    path.unlink()
+    try:
+        load_config(config_path)
+    except Exception:
+        path.write_text(backup, encoding="utf-8")  # 回滚
+        raise
+    mark_exam_deleted(config.parsed_dir, exam)
+    print(f"[完成] 已删除考试条目: {name}（规范表缓存保留，已标记删除）")
+
+
+def _exam_file_map(
+    config: AnalysisConfig,
+) -> dict[str, tuple[ExamConfig, Path]]:
+    """返回 {规范考试名: (ExamConfig, 条目文件路径)}。"""
+    result: dict[str, tuple[ExamConfig, Path]] = {}
+    for path, folder_semester in discover_exam_files(config.exams_dir):
+        exam = _load_exam_file(
+            Path(path), folder_semester, config.subject_aliases, config.input_dir
+        )
+        if exam.name:
+            result[exam.name] = (exam, Path(path))
+    return result
+
+
+def _write_exam_entry(
+    target: Path, data: dict, config: AnalysisConfig, semester: str
+) -> None:
+    """写临时文件 -> 单文件校验 -> 原子替换。"""
+    tmp = target.with_name(target.name + ".tmp")
+    tmp.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    try:
+        _load_exam_file(tmp, semester, config.subject_aliases, config.input_dir)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, target)
+
+
+def _ask(
+    label: str, value: str | None, default: str | None = None, required: bool = False
+) -> str | None:
+    """交互式问答：value 有值时直接返回，否则读取用户输入。"""
+    if value is not None:
+        return value
+    prompt = f"{label}"
+    if default is not None:
+        prompt += f"（默认: {default}）"
+    prompt += ": "
+    answer = input(prompt).strip()
+    if not answer and default is not None:
+        return default
+    if not answer and required:
+        raise ValueError(f"{label} 必填")
+    return answer or None
+
+
+def _fmt_default(value: float | None) -> str | None:
+    """数值默认值格式化为提示文本。"""
+    return f"{value:g}" if value is not None else None
 
 
 def _parsed_status(config: AnalysisConfig, exam: ExamConfig) -> str:
@@ -216,13 +468,14 @@ def list_exams(
                 "满分": "" if full_score is None else f"{full_score:g}",
                 "检查": "可检查" if raw_exists else "文件缺失",
                 "成绩单": status,
+                "删除": "已删除" if is_exam_deleted(config.parsed_dir, exam) else "",
             }
         )
     return pd.DataFrame(
         rows,
         columns=[
             "考试名称", "学期", "考试类型", "格式", "科目", "日期",
-            "满分", "检查", "成绩单",
+            "满分", "检查", "成绩单", "删除",
         ],
     )
 

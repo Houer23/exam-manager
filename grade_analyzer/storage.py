@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -88,9 +89,15 @@ def class_summary_path(parsed_dir: str, exam: ExamConfig) -> Path:
 
 def mark_exam_deleted(parsed_dir: str, exam: ExamConfig) -> None:
     """在规范表缓存目录写入删除标记（缓存文件本身保留）。"""
-    raise NotImplementedError("删除标记将在后续实现")
+    exam_dir = parsed_exam_dir(parsed_dir, exam)
+    if exam_dir.is_dir():
+        (exam_dir / DELETED_MARKER).write_text(
+            f"deleted: {datetime.now().isoformat(timespec='seconds')}\n"
+            f"exam: {exam.name}\n",
+            encoding="utf-8",
+        )
 
 
 def is_exam_deleted(parsed_dir: str, exam: ExamConfig) -> bool:
     """检查缓存目录是否存在删除标记。"""
-    raise NotImplementedError("删除标记检查将在后续实现")
+    return (parsed_exam_dir(parsed_dir, exam) / DELETED_MARKER).is_file()

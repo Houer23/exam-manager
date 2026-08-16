@@ -63,7 +63,7 @@ current_exam: ''
 # 可按学期建子文件夹，子文件夹名作为该文件夹内条目的默认 semester；
 # 条目内显式声明 semester 时以文件声明为优先。
 # 默认成绩单输入目录：考试配置 folder 留空时使用
-input_dir: data/input
+input_dir: K:\11. 常规工作\地理教学工作（遂昌中学）\考试管理2025年10月12日
 exams_dir: config/exams
 
 # 班级配置目录：<学期>.yaml（键为默认学校的班级名，level 限 A/B）

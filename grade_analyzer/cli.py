@@ -116,6 +116,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_p.add_argument("--default-grade", dest="default_grade", default=None)
     add_p.add_argument("--sheet", default=None)
+    add_p.add_argument("--short-name", dest="short_name", default=None)
+    add_p.add_argument(
+        "--question-display",
+        dest="question_display",
+        default=None,
+        choices=["split", "merged"],
+    )
+    add_p.add_argument("--show-big-questions", dest="show_big_questions", action="store_true")
+    add_p.add_argument("--filter-by-selection", dest="filter_by_selection", action="store_true")
 
     update_p = exam_sub.add_parser("update", help="修改考试条目字段")
     update_p.add_argument("name", help="考试名称")
@@ -220,6 +229,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="只生成个人成绩单，不生成班级成绩汇总",
     )
+
+    charts_parser = subparsers.add_parser("charts", help="生成统计图（需先 parse）")
+    add_config_arg(charts_parser)
+    charts_parser.add_argument("--semester", default=None, help="学期（缺省=当前学期）")
+    charts_parser.add_argument(
+        "--exam",
+        default=None,
+        help="考试名称或序号列表（如 1,3；纯数字/逗号=按日期升序序号，否则按名称）；"
+             "缺省时列出考试列表并按 current_exam 或全部处理",
+    )
+    charts_parser.add_argument(
+        "--class",
+        dest="class_list",
+        default=None,
+        help="指定班级数字列表（如 10,11，年级取默认年级），按 班级×考试 绘制；"
+             "缺省按配置分组（层次/教师）绘制",
+    )
+    charts_parser.add_argument(
+        "--per-class",
+        action="store_true",
+        help="--class 给出多个班级时，每个班级单独生成一张图",
+    )
     return parser
 
 
@@ -277,6 +308,10 @@ def main(argv: list[str] | None = None) -> int:
                 subjective_full_score=args.subjective_full_score,
                 default_grade=args.default_grade,
                 sheet=args.sheet,
+                short_name=args.short_name,
+                question_display=args.question_display,
+                show_big_questions=args.show_big_questions,
+                filter_by_selection=args.filter_by_selection,
             )
         elif args.exam_command == "update":
             update_exam(
@@ -342,6 +377,16 @@ def main(argv: list[str] | None = None) -> int:
             merge_strips=not args.no_merge_strips,
             generate_summary=not args.strips_only,
             generate_strips=not args.summary_only,
+        )
+    elif args.command == "charts":
+        from .pipeline import run_charts
+
+        run_charts(
+            args.config,
+            semester=args.semester,
+            exam_name=args.exam,
+            classes=args.class_list,
+            per_class=args.per_class,
         )
     return 0
 

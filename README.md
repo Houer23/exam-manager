@@ -126,7 +126,7 @@ pip install -r requirements.txt
 
 ### 2. 录入考试条目
 
-手动在 `config/exams/<学期>/` 下新建 yaml（模板见上节）。
+用 `exam add` 新增（参数式或交互式，交互会逐一提示模板全部配置项），或在 `config/exams/<学期>/` 下手动新建 yaml（模板见上节）。
 
 ### 3. 校验
 
@@ -146,6 +146,8 @@ python -m grade_analyzer.cli run --exam <考试名称>    # 只处理指定考�
 python -m grade_analyzer.cli run --exam 1,3          # 按日期升序序号选择多场合并分析
 python -m grade_analyzer.cli results --exam <考试名称> # 只生成班级汇总与个人成绩单
 ```
+
+`results` 只读规范表，**运行前必须先 `parse`**；可用 `exam list --results-ready` 确认哪些场次已就绪。原始成绩文件更新后规范表会标记"已过期"，需重新 `parse`（或 `parse --reparse` 强制重解析）再运行 results。一句话流程：**放数据 → exam add → check → parse → exam list --results-ready → results**。
 
 多场考试（≥2）时：merged 长表/宽表与成绩分析汇总文件名标注日期范围（如 `merged_long_20260325-20260420.csv`、`成绩分析汇总_20260325-20260420.xlsx`），单场不做 merge 落盘、报告标注该场日期；个人成绩单合并为一份（每生一个表头，每场考试一行，主观题列为各大题得分竖线合并字符串）。
 

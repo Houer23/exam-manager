@@ -87,3 +87,27 @@ def test_invalid_metric_key(tmp_path):
     _write(tmp_path, "colors:\n  metrics:\n    方差: {color: red}\n")
     with pytest.raises(ValueError, match="metrics"):
         load_charts_config(str(tmp_path))
+
+
+def test_axis_xlim_factor_default_and_override(tmp_path):
+    assert load_charts_config(str(tmp_path)).axis.xlim_factor == 1.1
+    _write(tmp_path, "axis:\n  xlim_factor: 1.05\n")
+    assert load_charts_config(str(tmp_path)).axis.xlim_factor == 1.05
+
+
+def test_axis_xlim_factor_invalid(tmp_path):
+    _write(tmp_path, "axis:\n  xlim_factor: 0.5\n")
+    with pytest.raises(ValueError, match="xlim_factor"):
+        load_charts_config(str(tmp_path))
+
+
+def test_violin_width_default_and_override(tmp_path):
+    assert load_charts_config(str(tmp_path)).violin.width == 0.8
+    _write(tmp_path, "violin:\n  width: 0.5\n")
+    assert load_charts_config(str(tmp_path)).violin.width == 0.5
+
+
+def test_violin_width_invalid(tmp_path):
+    _write(tmp_path, "violin:\n  width: 0\n")
+    with pytest.raises(ValueError, match="violin.width"):
+        load_charts_config(str(tmp_path))

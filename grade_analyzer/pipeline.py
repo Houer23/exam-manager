@@ -22,9 +22,14 @@ from .consolidate import (
 )
 from .config import AnalysisConfig, ExamConfig, load_config
 from .detect import detect_subject_from_filename, resolve_exam_name
-from .dist_charts import build_all_charts
+from .dist_charts import build_all_charts, build_exam_series_chart
 from .io_utils import read_raw_sheet
-from .storage import is_parsed_fresh, write_parsed_tables
+from .storage import (
+    is_exam_deleted,
+    is_parsed_fresh,
+    parsed_exam_dir,
+    write_parsed_tables,
+)
 from .report import build_class_summaries, build_exam_statistics, build_report
 from .personal_strip import build_merged_personal_strips, build_personal_strips
 from .quality import write_quality_excel
@@ -91,6 +96,28 @@ def _resolve_exam_selection(
     return scope, None, scope_semester
 
 
+def _ensure_parsed_ready(
+    config: AnalysisConfig, exams: list[ExamConfig]
+) -> list[str]:
+    """返回待处理考试中规范表未就绪的描述列表（空 = 全部已解析且新鲜）。"""
+    issues: list[str] = []
+    for exam in exams:
+        if not exam.name:
+            issues.append("（存在未命名考试）")
+            continue
+        if is_exam_deleted(config.parsed_dir, exam):
+            issues.append(f"{exam.name}: 考试已删除（缓存标记）")
+            continue
+        exam_dir = parsed_exam_dir(config.parsed_dir, exam)
+        score_file = exam_dir / f"score_summary.{config.parsed_format}"
+        question_file = exam_dir / f"question_detail.{config.parsed_format}"
+        if not score_file.is_file() or not question_file.is_file():
+            issues.append(f"{exam.name}: 未解析")
+        elif not is_parsed_fresh(config.parsed_dir, exam, config.parsed_format):
+            issues.append(f"{exam.name}: 规范表已过期（原始文件已更新）")
+    return issues
+
+
 def parse_exams(
     config_path: str = "config/config.yaml",
     reparse: bool = False,
@@ -115,6 +142,9 @@ def parse_exams(
     for exam in exams:
         if not exam.name:
             print(f"[失败] {exam.full_path}: 考试名称无法解析，请先运行 check")
+            continue
+        if is_exam_deleted(config.parsed_dir, exam):
+            print(f"[跳过] {exam.name}: 考试已删除（缓存标记）")
             continue
 
         if exam.format is None:
@@ -210,6 +240,12 @@ def run_pipeline(
     event("启动", f"run 开始（配置 {config_path}）")
     parse_exams(config_path, reparse=reparse, exam_names=parse_names)
     event("解析", "规范表解析/复用完成")
+    issues = _ensure_parsed_ready(config, selected)
+    if issues:
+        print("[提示] 以下考试规范表仍未就绪（解析失败或原始文件已更新），本次 run 已中止：")
+        for issue in issues:
+            print(f"  - {issue}")
+        return
     long_df, wide_df, frames = merge_to_output(
         config,
         semester=merge_semester,
@@ -306,6 +342,12 @@ def run_results(
     )
     if not exams:
         raise ValueError("筛选后无考试可生成成绩单")
+    issues = _ensure_parsed_ready(config, exams)
+    if issues:
+        print("[提示] 以下考试规范表未就绪，请先运行 parse，本次 results 已结束：")
+        for issue in issues:
+            print(f"  - {issue}")
+        return
     strip_inputs: list[tuple[ExamConfig, pd.DataFrame, pd.DataFrame]] = []
     for exam in exams:
         if not exam.name:
@@ -338,3 +380,92 @@ def run_results(
                     exam, score, questions, results_cfg, config
                 ):
                     print(f"[个人成绩单] {p}")
+
+
+def run_charts(
+    config_path: str = "config/config.yaml",
+    semester: str | None = None,
+    exam_name: str | None = None,
+    classes: str | None = None,
+    per_class: bool = False,
+) -> None:
+    """单独命令：按配置生成统计图（需先 parse）。
+
+    classes 指定时按 班级×考试 绘制（数字班级列表，如 10,11，年级取默认年级）；
+    per_class=True 时每个班级单独生成一张图，否则一张图按班级分组。
+    """
+    config = load_config(config_path)
+    charts_cfg = load_charts_config(config.charts_dir)
+    exams, _parse_names, _merge_semester = _resolve_exam_selection(
+        config, exam_name, semester
+    )
+    if not exams:
+        raise ValueError("筛选后无考试可生成统计图")
+    issues = _ensure_parsed_ready(config, exams)
+    if issues:
+        print("[提示] 以下考试规范表未就绪，请先运行 parse，本次 charts 已结束：")
+        for issue in issues:
+            print(f"  - {issue}")
+        return
+    if classes:
+        class_names = _resolve_class_names(classes, config.default_grade)
+        scores = [
+            read_score_summary(config.parsed_dir, exam, config.parsed_format)
+            for exam in exams
+        ]
+        targets = [[cn] for cn in class_names] if per_class else [class_names]
+        for target in targets:
+            path = build_exam_series_chart(
+                exams, scores, target, charts_cfg, config.output
+            )
+            if path:
+                print(f"[统计图] {path}")
+        return
+    for exam in exams:
+        if not exam.name:
+            continue
+        score = read_score_summary(config.parsed_dir, exam, config.parsed_format)
+        paths = build_all_charts(exam, score, charts_cfg, config.output)
+        for p in paths:
+            print(f"[统计图] {p}")
+        if not paths:
+            print(f"[统计图] {exam.name}: 无可用数据或图表未启用")
+
+
+def _resolve_class_names(classes_arg: str, default_grade: str) -> list[str]:
+    """数字班级列表转换为规范班级名（如 高一10班，两位对齐）。
+
+    支持逗号分隔与 n-m 连续区间（含两端；n>m 时取 m..n 反向），
+    如 "10,12-14" -> 10,12,13,14；"14-12" -> 14,13,12。
+    """
+    nums: list[int] = []
+    for part in classes_arg.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            try:
+                a_s, b_s = part.split("-", 1)
+                a, b = int(a_s), int(b_s)
+            except ValueError:
+                raise ValueError(
+                    f"班级区间应为 n-m（如 10-12），当前为 {part!r}"
+                )
+            if a <= b:
+                nums.extend(range(a, b + 1))
+            else:
+                nums.extend(range(a, b - 1, -1))
+        else:
+            try:
+                nums.append(int(part))
+            except ValueError:
+                raise ValueError(f"班级应为数字或区间（如 10,11 或 10-12），当前为 {part!r}")
+    if not nums:
+        raise ValueError("--class 未提供有效班级数字")
+    seen: set[int] = set()
+    ordered: list[int] = []
+    for n in nums:
+        if n not in seen:
+            seen.add(n)
+            ordered.append(n)
+    return [f"{default_grade}{n:02d}班" for n in ordered]

@@ -68,10 +68,22 @@ def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None):
     return str(cfg)
 
 
-def test_run_pipeline_verify_roster(tmp_path, capsys):
+@pytest.fixture(scope="module")
+def shared_parsed(tmp_path_factory):
+    """模块内共享：解析一次真实周测样例，供多个测试复用规范表，减少重复解析。"""
+    from grade_analyzer.pipeline import parse_exams
+
+    base = tmp_path_factory.mktemp("shared_parsed")
+    parsed_dir = base / "parsed"
+    cfg_path = _setup(base, parsed_dir, base / "out")
+    parse_exams(cfg_path)
+    return parsed_dir
+
+
+def test_run_pipeline_verify_roster(shared_parsed, tmp_path, capsys):
     from grade_analyzer.pipeline import run_pipeline
 
-    parsed = tmp_path / "parsed"
+    parsed = shared_parsed
     out = tmp_path / "out"
     roster_dir = tmp_path / "roster"
     roster_dir.mkdir()
@@ -134,11 +146,11 @@ def test_parse_exams_writes_and_reuses(tmp_path, capsys):
     assert "[复用]" not in capsys.readouterr().out
 
 
-def test_run_pipeline_writes_report_and_statistics(tmp_path, capsys):
+def test_run_pipeline_writes_report_and_statistics(shared_parsed, tmp_path, capsys):
     import openpyxl
     from grade_analyzer.pipeline import run_pipeline
 
-    parsed = tmp_path / "parsed"
+    parsed = shared_parsed
     out = tmp_path / "out"
     cfg_path = _setup(tmp_path, parsed, out)
 
@@ -172,11 +184,11 @@ def test_run_pipeline_writes_report_and_statistics(tmp_path, capsys):
     assert len(report_wb["多场趋势"]._charts) == 1  # 内嵌折线图
 
 
-def test_run_results_exam_filter_with_unnamed_weekly(tmp_path, capsys):
+def test_run_results_exam_filter_with_unnamed_weekly(shared_parsed, tmp_path, capsys):
     """name 留空的周测：--exam 应能用文件名解析出的名称命中。"""
     from grade_analyzer.pipeline import parse_exams, run_results
 
-    parsed = tmp_path / "parsed"
+    parsed = shared_parsed
     out = tmp_path / "out"
     cfg_path = _setup(tmp_path, parsed, out)
     # 模拟真实周测：name 留空，考试名称从文件名提取
@@ -199,11 +211,11 @@ def test_run_results_exam_filter_with_unnamed_weekly(tmp_path, capsys):
     assert "[个人成绩单]" in out_text
 
 
-def test_run_results_current_exam_index_lists_exams(tmp_path, capsys):
+def test_run_results_current_exam_index_lists_exams(shared_parsed, tmp_path, capsys):
     """未传 --exam 时列出考试列表，并按 current_exam 序号限定。"""
     from grade_analyzer.pipeline import parse_exams, run_results
 
-    parsed = tmp_path / "parsed"
+    parsed = shared_parsed
     out = tmp_path / "out"
     cfg_path = _setup(tmp_path, parsed, out)
     parse_exams(cfg_path)
@@ -218,11 +230,11 @@ def test_run_results_current_exam_index_lists_exams(tmp_path, capsys):
     assert "[个人成绩单]" in out_text
 
 
-def test_run_pipeline_exam_filter(tmp_path, capsys):
+def test_run_pipeline_exam_filter(shared_parsed, tmp_path, capsys):
     """run --exam 只处理指定考试；未指定时含无规范表考试会失败。"""
     from grade_analyzer.pipeline import run_pipeline
 
-    parsed = tmp_path / "parsed"
+    parsed = shared_parsed
     out = tmp_path / "out"
     cfg_path = _setup(tmp_path, parsed, out)
     # 追加一场无规范表、原始文件也不存在的考试
@@ -302,11 +314,11 @@ def test_cli_results_only_flags_mutually_exclusive():
         build_parser().parse_args(["results", "--summary-only", "--strips-only"])
 
 
-def test_run_results_merge_strips_false_generates_per_exam(tmp_path, capsys):
+def test_run_results_merge_strips_false_generates_per_exam(shared_parsed, tmp_path, capsys):
     """merge_strips=False 时多场各自生成单场个人成绩单，不生成范围合并文件。"""
     from grade_analyzer.pipeline import parse_exams, run_results
 
-    parsed = tmp_path / "parsed"
+    parsed = shared_parsed
     out = tmp_path / "out"
     cfg_path = _setup(tmp_path, parsed, out)
     # 追加第二场联考条目（真实样例）
@@ -333,11 +345,11 @@ def test_run_results_merge_strips_false_generates_per_exam(tmp_path, capsys):
     assert list(results.glob("20260420_*_个人成绩单.xlsx"))
 
 
-def test_run_results_summary_only(tmp_path, capsys):
+def test_run_results_summary_only(shared_parsed, tmp_path, capsys):
     """generate_strips=False：只生成班级汇总，不生成个人成绩单。"""
     from grade_analyzer.pipeline import parse_exams, run_results
 
-    parsed = tmp_path / "parsed"
+    parsed = shared_parsed
     out = tmp_path / "out"
     cfg_path = _setup(tmp_path, parsed, out)
     parse_exams(cfg_path)
@@ -347,11 +359,11 @@ def test_run_results_summary_only(tmp_path, capsys):
     assert "[个人成绩单]" not in out_text
 
 
-def test_run_results_strips_only(tmp_path, capsys):
+def test_run_results_strips_only(shared_parsed, tmp_path, capsys):
     """generate_summary=False：只生成个人成绩单，不生成班级汇总。"""
     from grade_analyzer.pipeline import parse_exams, run_results
 
-    parsed = tmp_path / "parsed"
+    parsed = shared_parsed
     out = tmp_path / "out"
     cfg_path = _setup(tmp_path, parsed, out)
     parse_exams(cfg_path)
@@ -359,3 +371,116 @@ def test_run_results_strips_only(tmp_path, capsys):
     out_text = capsys.readouterr().out
     assert "[班级汇总]" not in out_text
     assert "[个人成绩单]" in out_text
+
+
+def test_ensure_parsed_ready(tmp_path):
+    from grade_analyzer.config import load_config
+    from grade_analyzer.pipeline import _ensure_parsed_ready, parse_exams
+
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    cfg = load_config(cfg_path)
+    issues = _ensure_parsed_ready(cfg, cfg.exams)
+    assert any("未解析" in i for i in issues)
+
+    parse_exams(cfg_path)
+    cfg2 = load_config(cfg_path)
+    assert _ensure_parsed_ready(cfg2, cfg2.exams) == []
+
+
+def test_run_results_requires_parse(tmp_path, capsys):
+    """未 parse 时 results 提示先 parse 并正常结束（不报错）。"""
+    from grade_analyzer.pipeline import run_results
+
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    run_results(cfg_path)
+    out_text = capsys.readouterr().out
+    assert "请先运行 parse" in out_text
+    assert "[个人成绩单]" not in out_text  # 未继续生成
+
+
+def test_cli_charts_parses():
+    from grade_analyzer.cli import build_parser
+
+    args = build_parser().parse_args(["charts", "--exam", "1,3"])
+    assert args.command == "charts"
+    assert args.exam == "1,3"
+    args2 = build_parser().parse_args(["charts"])
+    assert args2.exam is None
+
+
+def test_run_charts_generates(shared_parsed, tmp_path, capsys):
+    """已 parse 后 charts 命令生成统计图。"""
+    from grade_analyzer.pipeline import run_charts
+
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, shared_parsed, out)
+    run_charts(cfg_path)
+    out_text = capsys.readouterr().out
+    assert "[统计图]" in out_text
+    charts = out / "charts" / "高一第二学期"
+    assert list(charts.glob("按层次_*.png"))
+    assert list(charts.glob("按教师_*.png"))
+
+
+def test_run_charts_requires_parse(tmp_path, capsys):
+    """未 parse 时 charts 提示先 parse 并正常结束。"""
+    from grade_analyzer.pipeline import run_charts
+
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    run_charts(cfg_path)
+    out_text = capsys.readouterr().out
+    assert "请先运行 parse" in out_text
+    assert "[统计图]" not in out_text
+
+
+def test_resolve_class_names():
+    from grade_analyzer.pipeline import _resolve_class_names
+
+    assert _resolve_class_names("10,11", "高一") == ["高一10班", "高一11班"]
+    assert _resolve_class_names("3", "高二") == ["高二03班"]
+    assert _resolve_class_names("10-12", "高一") == [
+        "高一10班", "高一11班", "高一12班",
+    ]
+    assert _resolve_class_names("12-10", "高一") == [
+        "高一12班", "高一11班", "高一10班",
+    ]
+    assert _resolve_class_names("10,13-14,10", "高一") == [
+        "高一10班", "高一13班", "高一14班",
+    ]
+    with pytest.raises(ValueError, match="班级"):
+        _resolve_class_names("abc", "高一")
+    with pytest.raises(ValueError, match="班级"):
+        _resolve_class_names("a-b", "高一")
+
+
+def test_run_charts_with_class(shared_parsed, tmp_path, capsys):
+    """charts --class 按 班级×考试 绘制。"""
+    from grade_analyzer.pipeline import run_charts
+
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, shared_parsed, out)
+    run_charts(cfg_path, classes="13")  # 高一13班
+    out_text = capsys.readouterr().out
+    assert "[统计图]" in out_text
+    charts = out / "charts" / "高一第二学期"
+    assert list(charts.glob("按班级_*.png"))
+
+
+def test_run_charts_per_class(shared_parsed, tmp_path, capsys):
+    """--per-class 时每个班级单独生成一张图。"""
+    from grade_analyzer.pipeline import run_charts
+
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, shared_parsed, out)
+    run_charts(cfg_path, classes="13,14", per_class=True)
+    out_text = capsys.readouterr().out
+    assert out_text.count("[统计图]") == 2
+    charts = out / "charts" / "高一第二学期"
+    assert list(charts.glob("按班级_20260325_高一13班.png"))
+    assert list(charts.glob("按班级_20260325_高一14班.png"))
