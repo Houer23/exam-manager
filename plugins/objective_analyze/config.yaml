@@ -1,0 +1,35 @@
+# objective_analyze 插件配置
+#
+# 用法：
+#   python -m grade_analyzer.cli task objective_analyze --input-dir "数据源文件夹"
+#   （--input-dir 与 --output-dir 优先于本配置；--plugin-config 指向本文件）
+
+# 数据源文件夹（含各班 N班.xls 与 全部班级.xls）；
+# 文件夹名形如 "<考试名>(<学科>)客观题得分明细" 或 "<考试名>客观题得分明细"，
+# 考试规范名称按项目规则由 学期简称 + 学科 + 考试名 拼接
+input_dir: ""
+
+# 输出目录；留空 = 运行时向用户确认（回车使用默认 data/output/task/<考试规范名称>/）；
+# 用户输入为空或路径非法时使用本配置项/默认值；命令行 --output-dir 优先
+output_dir: ""
+
+# 是否按考试规范名称新建子文件夹：true = 输出到 <输出目录>/<考试规范名称>/（默认）
+# false = 直接输出到 <输出目录>
+output_subdir_by_exam: true
+
+# 学期；留空 = 全局 config/config.yaml 的 current_semester
+semester: ""
+
+# 学科；留空 = 从文件夹名括号内自动识别（如 限时练三(地理)客观题得分明细 -> 地理）
+subject: ""
+
+# 考试日期（输出页眉右侧，YYYY-MM-DD）；
+# 留空 = 从考试配置目录（exams_dir）搜索匹配条目的 date；
+# 仍无匹配 = 交互输入（校验/归一化，错误达上限后询问是否使用今日日期）
+exam_date: ""
+
+# 低得分率阈值（低于视为低得分率题）
+low_score_flag: 0.6
+
+# 交互输入考试日期时允许的最大错误次数（超过后询问是否使用今日日期）
+max_date_input_errors: 2

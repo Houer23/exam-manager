@@ -9,3 +9,4 @@ pytest
 PyYAML
 matplotlib
 seaborn
+xlrd

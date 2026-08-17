@@ -20,6 +20,7 @@ _GLOBAL_KEYS = {
     "current_exam", "default_school", "input_dir", "parsed_dir", "parsed_format",
     "exams_dir", "classes_dir", "subjects_dir", "roster_dir", "charts_dir",
     "results_dir", "results_config_dir", "output_dir", "report_excel_name",
+    "plugins",
 }
 _ANALYSIS_KEYS = {"pass_ratio", "excellent_ratio", "absent_strategy", "score_bands"}
 _EXAM_KEYS = {
@@ -148,6 +149,8 @@ class AnalysisConfig:
     output_dir: str = "data/output"  # 总输出目录
     report_excel_name: str = "成绩分析汇总.xlsx"  # reports 汇总报告文件名
     output: OutputConfig = field(default_factory=OutputConfig)  # 兼容属性（加载后组装）
+    # 插件白名单：None=自动发现全部 enabled 插件；[]=禁用全部；列表=只加载列出的插件
+    plugins: list[str] | None = None
     # 常见科目词表（用于文件名识别）
     subjects: list[str] = field(
         default_factory=lambda: [
@@ -251,8 +254,9 @@ def _load_exam_file(
 
     name = _clean(raw.get("name"))
     fmt = _clean(raw.get("format"))
-    if fmt is not None and fmt not in {"weekly", "joint"}:
-        raise ValueError(f"{path}: format 应为 weekly/joint，当前为 {fmt!r}")
+    # 格式名不在此处硬校验：未知格式在 check/parse 时按注册表给出提示
+    if fmt is not None and not isinstance(fmt, str):
+        raise ValueError(f"{path}: format 应为字符串，当前为 {fmt!r}")
     exam_type = _clean(raw.get("type")) or "默认"
     importance = _clean(raw.get("importance"))
     folder = _clean(raw.get("folder")) or input_dir
@@ -469,9 +473,18 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
             ),
         )
 
+    raw_plugins = raw.get("plugins")
+    plugins: list[str] | None = None
+    if raw_plugins is not None:
+        if not isinstance(raw_plugins, list):
+            raise ValueError(f"{cfg_path}: plugins 应为列表（插件名白名单）或留空")
+        plugins = [str(v) for v in raw_plugins]
+
     config = AnalysisConfig(
         input_dir=str(raw.get("input_dir", "data/input")),
         exams_dir=str(raw.get("exams_dir", "config/exams")),
+        classes_dir=str(raw.get("classes_dir", "config/classes")),
+        subjects_dir=str(raw.get("subjects_dir", "config/subjects")),
         parsed_dir=str(raw.get("parsed_dir", "data/parsed")),
         parsed_format=str(raw.get("parsed_format", "csv")),
         roster_dir=str(raw.get("roster_dir", "data/roster")),
@@ -482,6 +495,7 @@ def load_config(path: str = "config/config.yaml") -> AnalysisConfig:
         report_excel_name=str(
             raw.get("report_excel_name", "成绩分析汇总.xlsx")
         ),
+        plugins=plugins,
         subjects=subjects,
         subject_aliases=subject_aliases,
         subject_defaults=subject_defaults,

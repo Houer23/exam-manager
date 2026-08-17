@@ -1,0 +1,4 @@
+name: objective_analyze
+version: 0.1.0
+description: 客观题得分明细汇总与得分率距平分析
+enabled: true

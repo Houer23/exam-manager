@@ -101,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_p.add_argument("--file", default=None, help="成绩文件名（缺省=交互式问答）")
     add_p.add_argument("--name", default=None, help="考试名称（留空=自动提取）")
-    add_p.add_argument("--format", default=None, choices=["weekly", "joint"])
+    add_p.add_argument("--format", default=None)
     add_p.add_argument("--type", default=None, help="考试类型：默认/学考/模考...")
     add_p.add_argument("--importance", default=None, choices=["平时", "联考"])
     add_p.add_argument("--semester", default=None, help="学期全称（缺省=交互式问答）")
@@ -131,7 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_config_arg(update_p)
     update_p.add_argument("--folder", default=None)
     update_p.add_argument("--file", default=None)
-    update_p.add_argument("--format", default=None, choices=["weekly", "joint"])
+    update_p.add_argument("--format", default=None)
     update_p.add_argument("--type", default=None)
     update_p.add_argument("--importance", default=None, choices=["平时", "联考"])
     update_p.add_argument("--semester", default=None, help="变更时自动移动条目文件到新学期目录")
@@ -251,11 +251,47 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="--class 给出多个班级时，每个班级单独生成一张图",
     )
+
+    # ---------- task：运行插件任务 ----------
+    task_parser = subparsers.add_parser(
+        "task", help="运行插件注册的批处理任务（如 objective_analyze）"
+    )
+    add_config_arg(task_parser)
+    task_parser.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="任务名称；省略或使用 --list 时列出已注册任务",
+    )
+    task_parser.add_argument(
+        "--list",
+        action="store_true",
+        help="列出已注册的任务名称与描述",
+    )
+    task_parser.add_argument(
+        "--plugin-config",
+        default=None,
+        help="插件配置文件路径（由任务自行解析，如 objective_analyze 的 config.yaml）",
+    )
+    task_parser.add_argument(
+        "--input-dir",
+        default=None,
+        help="任务输入目录（如客观题得分明细文件夹；优先于插件配置）",
+    )
+    task_parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="任务输出目录（覆盖插件配置的默认输出位置）",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    from .plugins.loader import load_plugins
+
+    # 启动时加载插件（幂等）：注册格式适配器与生命周期钩子
+    load_plugins(args.config)
 
     if args.command == "check":
         from .checker import run_check
@@ -387,6 +423,21 @@ def main(argv: list[str] | None = None) -> int:
             exam_name=args.exam,
             classes=args.class_list,
             per_class=args.per_class,
+        )
+    elif args.command == "task":
+        from .plugins.loader import list_tasks, load_plugins, run_task
+
+        load_plugins(args.config)
+        if args.list or not args.name:
+            for name, plugin, description in list_tasks():
+                print(f"{name}\t{plugin}\t{description}")
+            return 0
+        return run_task(
+            args.name,
+            config_path=args.config,
+            plugin_config=args.plugin_config,
+            input_dir=args.input_dir,
+            output_dir=args.output_dir,
         )
     return 0
 

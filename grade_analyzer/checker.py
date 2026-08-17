@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .adapters.registry import auto_detect_format
+from .adapters.registry import auto_detect_format, known_format_hint
 from .config import AnalysisConfig, ExamConfig, normalize_exam_name
 from .detect import detect_subject_from_filename, extract_exam_name_from_filename
 from .io_utils import read_raw_sheet
@@ -71,7 +71,10 @@ def check_exam(exam: ExamConfig, config: AnalysisConfig) -> dict:
     if fmt:
         add_check("格式", "PASS", fmt)
     else:
-        add_check("格式", "FAIL", "无法识别，请手动指定 format（weekly/joint）")
+        add_check(
+            "格式", "FAIL",
+            f"无法识别，请手动指定 format（{known_format_hint()}）",
+        )
     result["preview"]["格式"] = fmt
 
     name = exam.name

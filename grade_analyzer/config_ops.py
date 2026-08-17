@@ -15,6 +15,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from .adapters.registry import known_format_hint
 from .config import (
     AnalysisConfig,
     ExamConfig,
@@ -165,7 +166,9 @@ def add_exam(
         show_big_questions = _ask(
             "是否显示主观大题汇总（true/false）", None, default="false"
         )
-        fmt = _ask("格式（weekly/joint，留空=自动识别）", None)
+        fmt = _ask(
+            f"格式（{known_format_hint()}，留空=自动识别）", None
+        )
         exam_type = _ask("考试类型", None, default="默认")
         importance = _ask("重要度（平时/联考，留空=由格式推导）", None)
         full_score = _ask(

@@ -158,6 +158,8 @@ def build_group_chart(
     text_move = annot.text_y_offset
     for _, row in metrics.iterrows():
         cls = row["班级"]
+        if cls not in positions:
+            continue  # 该班级无当前分组维度（如未配置层次/教师）时不在图中
         y = positions[cls]
         color_text = group_colors.get(row[group_col], "black")
         ax.text(

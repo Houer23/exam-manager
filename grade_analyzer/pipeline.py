@@ -32,6 +32,8 @@ from .storage import (
 )
 from .report import build_class_summaries, build_exam_statistics, build_report
 from .personal_strip import build_merged_personal_strips, build_personal_strips
+from .plugins.api import ON_EXAM_FINISHED, ON_EXAM_PARSED, ON_RUN_FINISHED, ON_RUN_START
+from .plugins.loader import fire_hook
 from .quality import write_quality_excel
 from .result_config import load_results_config
 from .run_info import write_run_info
@@ -197,6 +199,9 @@ def parse_exams(
         write_parsed_tables(
             config.parsed_dir, exam, score, questions, config.parsed_format
         )
+        fire_hook(
+            ON_EXAM_PARSED, exam=exam, score=score, questions=questions, config=config
+        )
         print(f"[完成] {exam.name}: {len(score)} 名学生已落盘")
 
 
@@ -238,6 +243,7 @@ def run_pipeline(
         events.append((time.strftime("%H:%M:%S"), stage, msg))
 
     event("启动", f"run 开始（配置 {config_path}）")
+    fire_hook(ON_RUN_START, config=config)
     parse_exams(config_path, reparse=reparse, exam_names=parse_names)
     event("解析", "规范表解析/复用完成")
     issues = _ensure_parsed_ready(config, selected)
@@ -279,6 +285,7 @@ def run_pipeline(
             print(f"[统计图] {chart_path}")
         if chart_paths:
             event("统计图", f"{exam.name}: {len(chart_paths)} 张组合图")
+        fire_hook(ON_EXAM_FINISHED, exam=exam, score=score, questions=questions)
     # 个人成绩单：多场合并（每生一个表头，每场一行）；单场沿用原格式
     if len(strip_inputs) >= 2:
         strip_paths = build_merged_personal_strips(
@@ -314,6 +321,7 @@ def run_pipeline(
         print(f"[质量] {quality_path}")
     elapsed = time.time() - start
     event("完成", f"总耗时 {elapsed:.1f}s")
+    fire_hook(ON_RUN_FINISHED, config=config, events=events)
     run_dir = write_run_info(config, events)
     print(f"[run-info] {run_dir}")
 
