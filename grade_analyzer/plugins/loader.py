@@ -220,6 +220,7 @@ def run_task(
     plugin_config: str | None = None,
     input_dir: str | None = None,
     output_dir: str | None = None,
+    baseline: str | None = None,
 ) -> Any:
     """运行默认管理器中的指定任务。"""
     global _default_manager
@@ -232,4 +233,5 @@ def run_task(
         plugin_config=plugin_config,
         input_dir=input_dir,
         output_dir=output_dir,
+        baseline=baseline,
     )

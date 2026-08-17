@@ -11,7 +11,7 @@ python -m grade_analyzer.cli task objective_analyze --input-dir "G:\...\限时�
 参数：
 - `--input-dir`：数据源文件夹（必填，或写入插件 `config.yaml` 的 `input_dir`）。
 - `--output-dir`：输出目录（可选，覆盖插件配置；默认 `data/output/task/<考试规范名称>/`）。
-- `--plugin-config`：插件配置文件路径（默认读取本目录 `config.yaml`）。
+- `--plugin-config`：插件配置文件路径；不传时自动读取本目录 `config.yaml`。
 
 ## 考试规范名称推导
 
@@ -38,6 +38,25 @@ python -m grade_analyzer.cli task objective_analyze --input-dir "G:\...\限时�
 `output_subdir_by_exam`（默认 `true`）：是否按考试规范名称新建子文件夹。
 - `true`：最终输出到 `<输出目录>/<考试规范名称>/`；
 - `false`：直接输出到 `<输出目录>`。
+
+## 分组与基线
+
+分组类型：`teacher`（任课教师）、`level`（班级层次，来源 `config/classes/<学期>.yaml`，
+未配置层次的班级归入 `未分层`）。
+
+- `summary_groups`：汇总分组，可多选；每个分组生成一个独立工作簿，包含该组成员
+  班级 sheet + `全部班级` sheet + `得分率汇总` sheet（文件标签为分组名，如 `柯` / `A`）；
+  留空（默认）时生成一个包含全部班级的工作簿（标签 `全部班级`）；
+- `deviation_groups`：距平分组，可多选（默认 `[teacher]`）；每个分组生成一个
+  距平文件，文件标签为分组名（`柯` / `A` / `未分层`）；
+- 全部班级为特殊分组，始终作为对比参照（可配置基线更换）。
+
+基线配置（值 = `全部班级` 或分组名）：
+- `baseline`（别名 `bl`）：距平文件的参照列，留空 = `全部班级`；
+- 命令行 `--baseline` / `--bl` 优先级最高。
+
+汇总表的 `得分率汇总` 含成员班级列 + `全部班级`列；最后一个班级列带右框线，
+`全部班级`列带左框线。
 
 ## 考试日期
 

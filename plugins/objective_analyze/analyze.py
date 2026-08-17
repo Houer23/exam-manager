@@ -68,6 +68,10 @@ _PLUGIN_CONFIG_KEYS = {
     "low_score_flag",
     "max_date_input_errors",
     "output_subdir_by_exam",
+    "summary_groups",
+    "deviation_groups",
+    "baseline",
+    "bl",
 }
 _DATE_RE = re.compile(r"^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?$")
 _SUMMARY_ROWS = [
@@ -102,6 +106,15 @@ class ClassSheet:
     header: list
     subheader: list
     rows: list
+
+
+@dataclass
+class GroupDef:
+    """分组定义：类型 + 标签 + 成员班级短名。"""
+
+    group_type: str  # teacher / level / unassigned / all
+    name: str        # 柯 / A / 未分层 / 全部班级
+    classes: list[str]
 
 
 def _set_col(i: int) -> str:
@@ -183,6 +196,88 @@ def _short_class_name(class_name: str) -> str:
     """高一01班 -> 1班；已是短名则原样（去掉班级号前导零以匹配文件名）。"""
     m = re.search(r"\d+", class_name)
     return f"{int(m.group(0))}班" if m else class_name
+
+
+def _parse_group_types(value, label: str) -> list[str]:
+    """解析分组类型配置（teacher/level 可多选）。"""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = [v.strip() for v in value.split(",") if v.strip()]
+    if not isinstance(value, list):
+        raise ValueError(f"{label} 应为列表（teacher/level）")
+    result: list[str] = []
+    for v in value:
+        v = str(v).strip()
+        if v not in ("teacher", "level"):
+            raise ValueError(f"{label} 仅支持 teacher/level，当前为 {v!r}")
+        if v not in result:
+            result.append(v)
+    return result
+
+
+def build_groups(
+    config,
+    semester: str,
+    subject: str | None,
+    class_names: list[str],
+    group_types: list[str],
+) -> dict[str, list[GroupDef]]:
+    """按分组类型把输入班级拆分为分组（全部班级为特殊分组，不在此列）。"""
+    result: dict[str, list[GroupDef]] = {}
+    if "teacher" in group_types and subject:
+        teacher_map = config.teacher_maps.get((semester, subject))
+        if teacher_map is None:
+            print(
+                f"[客观题] 未找到学科配置 config/subjects/{semester}_{subject}.yaml，"
+                "跳过教师分组"
+            )
+        else:
+            for code, name in teacher_map.teacher_names.items():
+                classes = [
+                    _short_class_name(cls)
+                    for cls, c in teacher_map.class_teachers.items()
+                    if c == code
+                ]
+                classes = [c for c in classes if c in class_names]
+                if classes:
+                    result.setdefault("teacher", []).append(
+                        GroupDef("teacher", name, classes)
+                    )
+    if "level" in group_types:
+        level_map: dict[str, list[str]] = {}
+        for (sem, full), info in config.class_infos.items():
+            if sem != semester:
+                continue
+            short = _short_class_name(full)
+            if short in class_names:
+                level_map.setdefault(info.level, []).append(short)
+        for level in sorted(level_map):
+            result.setdefault("level", []).append(
+                GroupDef("level", level, level_map[level])
+            )
+        assigned = {c for v in level_map.values() for c in v}
+        unassigned = [c for c in class_names if c not in assigned]
+        if unassigned:
+            result.setdefault("level", []).append(
+                GroupDef("unassigned", "未分层", unassigned)
+            )
+    return result
+
+
+def resolve_baseline(value: str, groups_by_type: dict[str, list[GroupDef]]) -> GroupDef:
+    """把基线配置值解析为分组（全部班级 或 分组名）。"""
+    v = (value or "").strip()
+    if not v or v == CLASS_SUM_NAME:
+        return GroupDef("all", CLASS_SUM_NAME, [])
+    for groups in groups_by_type.values():
+        for group in groups:
+            if group.name == v:
+                return group
+    available = "、".join(
+        sorted({g.name for groups in groups_by_type.values() for g in groups})
+    )
+    raise ValueError(f"基线 {v!r} 无法解析（可用基线: {available}、{CLASS_SUM_NAME}）")
 
 
 def teachers_from_config(config, semester: str, subject: str | None) -> dict[str, list[str]]:
@@ -328,17 +423,17 @@ def _build_score_frame(sheets: list[ClassSheet]) -> pd.DataFrame:
     return score_df
 
 
-def _write_summary_sheet(wb: Workbook, score_df: pd.DataFrame, exam_name: str, exam_date: str) -> None:
+def _write_summary_sheet(wb: Workbook, summary_df: pd.DataFrame, exam_name: str, exam_date: str) -> None:
     """写入并样式化 得分率汇总 sheet。"""
     ws = wb.create_sheet(title="得分率汇总")
-    for row in dataframe_to_rows(score_df, index=True):
+    for row in dataframe_to_rows(summary_df, index=True):
         if len(row) < 2:
             continue
         ws.append(row)
-    n_questions = len(score_df) - 1
+    n_questions = len(summary_df) - 1
     ws.column_dimensions["A"].width = 6.5
     ws.column_dimensions["B"].width = 6.5
-    for i in range(2, len(score_df.columns) + 1):
+    for i in range(2, len(summary_df.columns) + 1):
         cell_col = _set_col(i)
         ws.column_dimensions[cell_col].width = 7.8
         ws.conditional_formatting.add(
@@ -346,15 +441,20 @@ def _write_summary_sheet(wb: Workbook, score_df: pd.DataFrame, exam_name: str, e
         )
         for r in range(2, n_questions + 2):
             ws[f"{cell_col}{r}"].number_format = PCT
+    all_col = _set_col(len(summary_df.columns))
+    last_class_col = _set_col(len(summary_df.columns) - 1)
     max_row, max_col = ws.max_row, ws.max_column
     for j in range(max_row):
         ws.row_dimensions[j + 1].height = 20
         top = _SIDE_MEDIUM if j == 0 else _SIDE_THIN
         for i in range(max_col):
-            ws[f"{_set_col(i)}{j + 1}"].border = Border(
-                top=top, bottom=_SIDE_THIN, left=None, right=None
+            col = _set_col(i)
+            left = _SIDE_THIN if col == all_col else None
+            right = _SIDE_THIN if col == last_class_col else None
+            ws[f"{col}{j + 1}"].border = Border(
+                top=top, bottom=_SIDE_THIN, left=left, right=right
             )
-    for i in range(len(score_df.columns) + 1):
+    for i in range(len(summary_df.columns) + 1):
         cell_col = _set_col(i)
         ws[f"{cell_col}1"].font = _TITLE_FONT
         ws[f"{cell_col}1"].alignment = _CENTER
@@ -362,11 +462,11 @@ def _write_summary_sheet(wb: Workbook, score_df: pd.DataFrame, exam_name: str, e
 
 
 def build_summary_workbook(
-    sheets: list[ClassSheet], score_df: pd.DataFrame, exam_name: str, exam_date: str
+    unit_sheets: list[ClassSheet], exam_name: str, exam_date: str
 ) -> Workbook:
-    """生成输出文件 1：每班一个 sheet + 得分率汇总。"""
+    """生成一个汇总工作簿：成员班级 sheet + 全部班级 sheet + 得分率汇总。"""
     wb = Workbook()
-    for i, sheet in enumerate(sheets):
+    for i, sheet in enumerate(unit_sheets):
         ws = wb.active if i == 0 else wb.create_sheet(title=sheet.class_name)
         if i == 0:
             ws.title = sheet.class_name
@@ -375,14 +475,34 @@ def build_summary_workbook(
         for row in sheet.rows:
             ws.append(row)
         _style_class_sheet(ws, len(sheet.rows), sheet.class_name, exam_name, exam_date)
-    _write_summary_sheet(wb, score_df, exam_name, exam_date)
+    _write_summary_sheet(
+        wb, _build_score_frame(unit_sheets), exam_name, exam_date
+    )
     return wb
+
+
+def _build_summary_units(
+    sheets: list[ClassSheet],
+    groups_by_type: dict[str, list[GroupDef]],
+    summary_types: list[str],
+) -> list[tuple[str, list[ClassSheet]]]:
+    """汇总输出单元：无分组 → [全部班级]（全部班级 sheet 始终包含）；分组 → 每组一个。"""
+    if not summary_types:
+        return [(CLASS_SUM_NAME, sheets)]
+    all_sheet = [s for s in sheets if s.class_name == CLASS_SUM_NAME]
+    units: list[tuple[str, list[ClassSheet]]] = []
+    for t in summary_types:
+        for group in groups_by_type.get(t, []):
+            member = [s for s in sheets if s.class_name in group.classes]
+            if member:
+                units.append((group.name, member + all_sheet))
+    return units
 
 
 def _deviation_summary(
     clses_df: pd.DataFrame,
     class_names: list[str],
-    all_col: str,
+    baseline_col: str,
     low_score_flag: float,
 ) -> tuple[pd.DataFrame, int, int]:
     """计算教师班级距平统计表，返回 (汇总表, 最大低负距平数, 最大低得分题数)。"""
@@ -416,7 +536,7 @@ def _deviation_summary(
         max_low_score_count = max(max_low_score_count, len(low_score_lst))
 
         sum_score = float(clses_df.loc["总分", cls])
-        sum_score_m = sum_score - float(clses_df.loc["总分", all_col])
+        sum_score_m = sum_score - float(clses_df.loc["总分", baseline_col])
         summary[f"{cls}_d"] = [
             up_count,
             up_ave,
@@ -490,17 +610,26 @@ def _style_deviation_summary(
 
 def build_deviation_workbook(
     score_df: pd.DataFrame,
-    class_names: list[str],
-    all_col: str,
+    group: GroupDef,
+    baseline: GroupDef,
     low_score_flag: float,
     exam_name: str,
     exam_date: str,
 ) -> Workbook:
-    """生成输出文件 2：班级得分率对比 + 距平统计。"""
-    columns = [*class_names, all_col]
-    clses_df = score_df.loc[:, columns].copy()
+    """生成输出文件 2：分组班级得分率对比（基线=全部班级或指定分组）+ 距平统计。"""
+    class_names = group.classes
+    if baseline.group_type == "all":
+        baseline_col = CLASS_SUM_NAME
+        clses_df = score_df.loc[:, [*class_names, baseline_col]].copy()
+    else:
+        baseline_col = baseline.name
+        clses_df = score_df[class_names].copy()
+        cols = [c for c in baseline.classes if c in score_df.columns]
+        if not cols:
+            raise ValueError(f"基线分组 {baseline.name!r} 无可用班级列")
+        clses_df[baseline_col] = score_df[cols].mean(axis=1)
     for cls in class_names:
-        clses_df[f"{cls}_d"] = clses_df[cls] - clses_df[all_col]
+        clses_df[f"{cls}_d"] = clses_df[cls] - clses_df[baseline_col]
 
     wb = Workbook()
     ws = wb.active
@@ -512,7 +641,7 @@ def build_deviation_workbook(
     _style_deviation_sheet(ws, len(class_names), len(clses_df))
 
     summary_df, max_low_low, max_low_score = _deviation_summary(
-        clses_df, class_names, all_col, low_score_flag
+        clses_df, class_names, baseline_col, low_score_flag
     )
     ws2 = wb.create_sheet(title="距平统计")
     for row in dataframe_to_rows(summary_df, index=True):
@@ -530,9 +659,17 @@ def build_deviation_workbook(
     return wb
 
 
+def _default_plugin_config_path() -> str:
+    """插件自带配置文件路径（plugins/objective_analyze/config.yaml）。"""
+    return str(Path(__file__).resolve().parent / "config.yaml")
+
+
 def _load_plugin_config(path: str | None) -> dict:
+    """读取插件配置；未指定路径时自动读取插件目录下的 config.yaml（存在才读取）。"""
     if not path:
-        return {}
+        path = _default_plugin_config_path()
+        if not Path(path).is_file():
+            return {}
     cfg_path = Path(path)
     if not cfg_path.is_file():
         raise FileNotFoundError(f"插件配置文件不存在: {cfg_path}")
@@ -733,6 +870,7 @@ def run(
     plugin_config: str | None = None,
     input_dir: str | None = None,
     output_dir: str | None = None,
+    baseline: str | None = None,
 ) -> int:
     """执行客观题得分明细汇总与距平分析。"""
     raw = _load_plugin_config(plugin_config)
@@ -785,23 +923,77 @@ def run(
     if not any(s.class_name == CLASS_SUM_NAME for s in sheets):
         raise ValueError(f"输入文件夹缺少 {CLASS_SUM_NAME}.xls")
 
-    score_df = _build_score_frame(sheets)
-    sum_path = out / f"{exam_name}_客观题得分汇总（全部班级）.xlsx"
-    build_summary_workbook(sheets, score_df, exam_name, exam_date).save(sum_path)
-    print(f"[客观题] 已保存: {sum_path}")
+    class_names = [s.class_name for s in sheets if s.class_name != CLASS_SUM_NAME]
+    summary_types = _parse_group_types(raw.get("summary_groups"), "summary_groups")
+    deviation_types = _parse_group_types(
+        raw.get("deviation_groups"), "deviation_groups"
+    )
+    if raw.get("deviation_groups") is None:
+        deviation_types = ["teacher"]  # 默认按任课教师生成距平文件
+    # 始终构建教师/层次两类分组：分组类型只决定生成哪些列/文件，基线可引用任意分组
+    groups_by_type = build_groups(
+        config, semester, subject, class_names, ["teacher", "level"]
+    )
 
-    teachers = teachers_from_config(config, semester, subject)
-    if not teachers:
-        print("[客观题] 未配置教师班级映射（config/subjects），跳过距平分析")
-        return 0
-    for teacher, class_names in teachers.items():
-        available = [c for c in class_names if c in score_df.columns]
-        if not available:
-            print(f"[客观题] 教师 {teacher}: 无可用班级，跳过")
-            continue
-        dev_path = out / f"{exam_name}_客观题得分率距平（{teacher}）.xlsx"
-        build_deviation_workbook(
-            score_df, available, CLASS_SUM_NAME, low_score_flag, exam_name, exam_date
-        ).save(dev_path)
-        print(f"[客观题] 已保存: {dev_path}")
+    deviation_baseline = resolve_baseline(
+        baseline
+        or raw.get("baseline")
+        or raw.get("bl")
+        or CLASS_SUM_NAME,
+        groups_by_type,
+    )
+
+    for t in summary_types:
+        if not groups_by_type.get(t):
+            print(
+                f"[客观题] 警告: 汇总分组类型 {t} 无可用分组"
+                "（请检查 config/subjects / config/classes 配置）"
+            )
+    for t in deviation_types:
+        if not groups_by_type.get(t):
+            print(
+                f"[客观题] 警告: 距平分组类型 {t} 无可用分组"
+                "（请检查 config/subjects / config/classes 配置）"
+            )
+    summary_units = _build_summary_units(sheets, groups_by_type, summary_types)
+    deviation_group_names = [
+        g.name for t in deviation_types for g in groups_by_type.get(t, [])
+    ]
+    print(
+        "[客观题] 汇总分组: "
+        f"{summary_types or ['无']}"
+        f"（文件: {'、'.join(label for label, _ in summary_units) or '无'}）"
+    )
+    print(
+        "[客观题] 距平分组: "
+        f"{deviation_types or ['无']}（文件: {'、'.join(deviation_group_names) or '无'}）"
+    )
+    print(
+        "[客观题] 基线: "
+        f"{CLASS_SUM_NAME if deviation_baseline.group_type == 'all' else deviation_baseline.name}"
+    )
+
+    for label, unit_sheets in summary_units:
+        sum_path = out / f"{exam_name}_客观题得分汇总（{label}）.xlsx"
+        build_summary_workbook(unit_sheets, exam_name, exam_date).save(sum_path)
+        print(f"[客观题] 已保存: {sum_path}")
+
+    deviation_groups: list[GroupDef] = []
+    for t in deviation_types:
+        deviation_groups.extend(groups_by_type.get(t, []))
+    if not deviation_groups:
+        print("[客观题] 未配置可用的距平分组（deviation_groups），跳过距平分析")
+    else:
+        score_df = _build_score_frame(sheets)
+        for group in deviation_groups:
+            dev_path = out / f"{exam_name}_客观题得分率距平（{group.name}）.xlsx"
+            build_deviation_workbook(
+                score_df,
+                group,
+                deviation_baseline,
+                low_score_flag,
+                exam_name,
+                exam_date,
+            ).save(dev_path)
+            print(f"[客观题] 已保存: {dev_path}")
     return 0

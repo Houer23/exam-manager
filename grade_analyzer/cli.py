@@ -283,6 +283,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="任务输出目录（覆盖插件配置的默认输出位置）",
     )
+    task_parser.add_argument(
+        "--baseline",
+        "--bl",
+        dest="baseline",
+        default=None,
+        help="基线（全部班级 或 分组名；留空 = 全部班级），别名 --bl",
+    )
     return parser
 
 
@@ -438,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
             plugin_config=args.plugin_config,
             input_dir=args.input_dir,
             output_dir=args.output_dir,
+            baseline=args.baseline,
         )
     return 0
 

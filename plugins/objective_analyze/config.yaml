@@ -2,7 +2,8 @@
 #
 # 用法：
 #   python -m grade_analyzer.cli task objective_analyze --input-dir "数据源文件夹"
-#   （--input-dir 与 --output-dir 优先于本配置；--plugin-config 指向本文件）
+#   （--input-dir 与 --output-dir 优先于本配置；
+#     不传 --plugin-config 时自动读取本文件）
 
 # 数据源文件夹（含各班 N班.xls 与 全部班级.xls）；
 # 文件夹名形如 "<考试名>(<学科>)客观题得分明细" 或 "<考试名>客观题得分明细"，
@@ -33,3 +34,14 @@ low_score_flag: 0.6
 
 # 交互输入考试日期时允许的最大错误次数（超过后询问是否使用今日日期）
 max_date_input_errors: 2
+
+# ==================== 分组与基线 ====================
+# 分组类型：teacher（任课教师）/ level（班级层次），可多选
+# 汇总分组：每个分组生成一个工作簿（成员班级 sheet + 全部班级 sheet + 得分率汇总 sheet）
+summary_groups: [teacher, level]
+# 距平分组：每个分组生成一个距平文件（文件标签为分组名，如 柯 / A / 未分层）
+deviation_groups: [teacher, level]
+
+# 基线：值 = 全部班级（默认）或分组名（教师名 / 层次 / 未分层）；
+# 别名 bl；命令行 --baseline / --bl 优先级最高
+baseline: ""

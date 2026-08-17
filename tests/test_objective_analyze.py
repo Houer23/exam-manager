@@ -22,8 +22,16 @@ def _sum_path(out_dir: Path) -> Path:
     return out_dir / EXAM_DIR / SUM_NAME
 
 
+def _sum_named(out_dir: Path, label: str) -> Path:
+    return out_dir / EXAM_DIR / f"高一下地理限时练三_客观题得分汇总（{label}）.xlsx"
+
+
 def _dev_path(out_dir: Path) -> Path:
     return out_dir / EXAM_DIR / DEV_NAME
+
+
+def _dev_named(out_dir: Path, label: str) -> Path:
+    return out_dir / EXAM_DIR / f"高一下地理限时练三_客观题得分率距平（{label}）.xlsx"
 
 
 def _write_configs(
@@ -32,10 +40,19 @@ def _write_configs(
     exam_date: str = "",
     output_dir_cfg: str = "",
     subdir_by_exam: bool = True,
+    summary_groups: str = "[]",
+    deviation_groups: str = "[teacher]",
+    baseline: str = "",
+    level_classes: str = (
+        "高一1班: {level: A, course: 物化地}\n"
+        "高一2班: {level: B, course: 史地政}\n"
+    ),
 ) -> tuple[Path, Path, Path]:
     """写临时全局配置、学科配置与插件配置。"""
     subjects_dir = tmp_path / "subjects"
     subjects_dir.mkdir()
+    classes_dir = tmp_path / "classes"
+    classes_dir.mkdir()
     exams_dir = tmp_path / "exams"
     exams_dir.mkdir()
     (subjects_dir / "高一第二学期_地理.yaml").write_text(
@@ -48,6 +65,7 @@ def _write_configs(
         "  高一2班: A\n",
         encoding="utf-8",
     )
+    (classes_dir / "高一第二学期.yaml").write_text(level_classes, encoding="utf-8")
     if with_exam:
         (exams_dir / "高一第二学期").mkdir()
         (exams_dir / "高一第二学期" / "限时练三.yaml").write_text(
@@ -65,6 +83,7 @@ def _write_configs(
         "subjects: [语文, 数学, 外语, 物理, 化学, 生物, 政治, 历史, 地理, 技术]\n"
         f"current_semester: 高一第二学期\n"
         f"subjects_dir: '{subjects_dir}'\n"
+        f"classes_dir: '{classes_dir}'\n"
         f"exams_dir: '{exams_dir}'\n",
         encoding="utf-8",
     )
@@ -77,7 +96,10 @@ def _write_configs(
         f"exam_date: '{exam_date}'\n"
         "low_score_flag: 0.6\n"
         "max_date_input_errors: 2\n"
-        f"output_subdir_by_exam: {str(subdir_by_exam).lower()}\n",
+        f"output_subdir_by_exam: {str(subdir_by_exam).lower()}\n"
+        f"summary_groups: {summary_groups}\n"
+        f"deviation_groups: {deviation_groups}\n"
+        f"baseline: '{baseline}'\n",
         encoding="utf-8",
     )
     return global_cfg, plugin_cfg, tmp_path / "out"
@@ -89,6 +111,25 @@ def test_trans_num():
     assert analyze.trans_num("2.0") == 2.0
     assert analyze.trans_num("D") == "D"
     assert analyze.trans_num("") is None
+
+
+def test_load_plugin_config_default_auto():
+    cfg = analyze._load_plugin_config(None)
+    assert "summary_groups" in cfg
+    assert "deviation_groups" in cfg
+    assert "baseline" in cfg
+
+
+def test_load_plugin_config_bl_alias(tmp_path):
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("baseline: ''\nbl: '柯'\n", encoding="utf-8")
+    raw = analyze._load_plugin_config(str(cfg))
+    assert raw["bl"] == "柯"
+
+
+def test_load_plugin_config_explicit_missing_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        analyze._load_plugin_config(str(tmp_path / "nope.yaml"))
 
 
 def test_split_folder_name():
@@ -129,6 +170,33 @@ def test_teachers_from_config(tmp_path):
     assert analyze.teachers_from_config(cfg, "高一第二学期", "地理") == {
         "柯": ["1班", "2班"]
     }
+
+
+def test_build_groups(tmp_path):
+    global_cfg, _plugin_cfg, _out = _write_configs(tmp_path)
+    cfg = load_config(str(global_cfg))
+    groups = analyze.build_groups(
+        cfg, "高一第二学期", "地理", ["1班", "2班"], ["teacher", "level"]
+    )
+    assert [(g.group_type, g.name, g.classes) for g in groups["teacher"]] == [
+        ("teacher", "柯", ["1班", "2班"])
+    ]
+    assert [(g.group_type, g.name, g.classes) for g in groups["level"]] == [
+        ("level", "A", ["1班"]),
+        ("level", "B", ["2班"]),
+    ]
+
+
+def test_build_groups_unassigned(tmp_path):
+    global_cfg, _plugin_cfg, _out = _write_configs(
+        tmp_path, level_classes="高一1班: {level: A, course: 物化地}\n"
+    )
+    cfg = load_config(str(global_cfg))
+    groups = analyze.build_groups(cfg, "高一第二学期", "地理", ["1班", "2班"], ["level"])
+    assert [(g.name, g.classes) for g in groups["level"]] == [
+        ("A", ["1班"]),
+        ("未分层", ["2班"]),
+    ]
 
 
 def test_run_generates_outputs(tmp_path):
@@ -184,6 +252,159 @@ def test_run_generates_outputs(tmp_path):
     assert stat["A2"].value == "正距平题数"
     assert stat["A13"].value == "总得分距平"
     assert stat["C13"].value is not None
+
+
+def test_run_auto_loads_plugin_config(tmp_path, monkeypatch):
+    global_cfg, _plugin_cfg, out_dir = _write_configs(
+        tmp_path, exam_date="2026-05-20"
+    )
+    default_cfg = tmp_path / "default_plugin.yaml"
+    default_cfg.write_text(
+        "input_dir: ''\n"
+        "output_dir: ''\n"
+        "semester: ''\n"
+        "subject: ''\n"
+        "exam_date: '2026-05-20'\n"
+        "low_score_flag: 0.6\n"
+        "max_date_input_errors: 2\n"
+        "output_subdir_by_exam: true\n"
+        "summary_groups: [teacher]\n"
+        "deviation_groups: [teacher]\n"
+        "baseline: ''\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        analyze, "_default_plugin_config_path", lambda: str(default_cfg)
+    )
+    assert (
+        analyze.run(
+            config_path=str(global_cfg),
+            plugin_config=None,
+            input_dir=str(INPUT_DIR),
+            output_dir=str(out_dir),
+        )
+        == 0
+    )
+    assert _sum_named(out_dir, "柯").is_file()
+    assert not _sum_path(out_dir).exists()
+
+
+def test_summary_group_workbooks(tmp_path):
+    global_cfg, plugin_cfg, out_dir = _write_configs(
+        tmp_path, exam_date="2026-05-20", summary_groups="[teacher]"
+    )
+    assert (
+        analyze.run(
+            config_path=str(global_cfg),
+            plugin_config=str(plugin_cfg),
+            input_dir=str(INPUT_DIR),
+            output_dir=str(out_dir),
+        )
+        == 0
+    )
+    wb = load_workbook(_sum_named(out_dir, "柯"))
+    assert wb.sheetnames == ["1班", "2班", "全部班级", "得分率汇总"]
+    summary = wb["得分率汇总"]
+    assert summary.max_column == 5
+    assert summary["D2"].border.right.style == "thin"
+    assert summary["E2"].border.left.style == "thin"
+    assert not _sum_path(out_dir).exists()
+
+
+def test_baseline_cli_overrides_config(tmp_path):
+    global_cfg, plugin_cfg, out_dir = _write_configs(
+        tmp_path,
+        exam_date="2026-05-20",
+        deviation_groups="[level]",
+        baseline="柯",
+    )
+    assert (
+        analyze.run(
+            config_path=str(global_cfg),
+            plugin_config=str(plugin_cfg),
+            input_dir=str(INPUT_DIR),
+            output_dir=str(out_dir),
+            baseline="全部班级",
+        )
+        == 0
+    )
+    ws_a = load_workbook(_dev_named(out_dir, "A"))["Sheet"]
+    assert ws_a["C1"].value == "全部班级"
+
+
+def test_deviation_level_files(tmp_path):
+    global_cfg, plugin_cfg, out_dir = _write_configs(
+        tmp_path, exam_date="2026-05-20", deviation_groups="[level]"
+    )
+    assert (
+        analyze.run(
+            config_path=str(global_cfg),
+            plugin_config=str(plugin_cfg),
+            input_dir=str(INPUT_DIR),
+            output_dir=str(out_dir),
+        )
+        == 0
+    )
+    ws_a = load_workbook(_dev_named(out_dir, "A"))["Sheet"]
+    assert ws_a["B1"].value == "1班"
+    assert ws_a["C1"].value == "全部班级"
+    ws_b = load_workbook(_dev_named(out_dir, "B"))["Sheet"]
+    assert ws_b["B1"].value == "2班"
+
+
+def test_deviation_baseline_group(tmp_path):
+    global_cfg, plugin_cfg, out_dir = _write_configs(
+        tmp_path,
+        exam_date="2026-05-20",
+        deviation_groups="[level]",
+        baseline="柯",
+    )
+    assert (
+        analyze.run(
+            config_path=str(global_cfg),
+            plugin_config=str(plugin_cfg),
+            input_dir=str(INPUT_DIR),
+            output_dir=str(out_dir),
+        )
+        == 0
+    )
+    ws_a = load_workbook(_dev_named(out_dir, "A"))["Sheet"]
+    assert ws_a["B1"].value == "1班"
+    assert ws_a["C1"].value == "柯"
+    assert ws_a["D1"].value == "1班_d"
+
+
+def test_baseline_bl_alias_in_config(tmp_path):
+    global_cfg, _plugin_cfg, out_dir = _write_configs(
+        tmp_path, exam_date="2026-05-20", deviation_groups="[level]"
+    )
+    plugin_cfg = tmp_path / "plugin_bl.yaml"
+    plugin_cfg.write_text(
+        "input_dir: ''\n"
+        "output_dir: ''\n"
+        "semester: ''\n"
+        "subject: ''\n"
+        "exam_date: '2026-05-20'\n"
+        "low_score_flag: 0.6\n"
+        "max_date_input_errors: 2\n"
+        "output_subdir_by_exam: true\n"
+        "summary_groups: []\n"
+        "deviation_groups: [level]\n"
+        "baseline: ''\n"
+        "bl: '柯'\n",
+        encoding="utf-8",
+    )
+    assert (
+        analyze.run(
+            config_path=str(global_cfg),
+            plugin_config=str(plugin_cfg),
+            input_dir=str(INPUT_DIR),
+            output_dir=str(out_dir),
+        )
+        == 0
+    )
+    ws_a = load_workbook(_dev_named(out_dir, "A"))["Sheet"]
+    assert ws_a["C1"].value == "柯"
 
 
 def test_explicit_exam_date_wins(tmp_path):
