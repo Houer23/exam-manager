@@ -73,6 +73,7 @@ class ExamConfig:
     short_name: str | None = None  # 考试简称（留空 = 使用考试全称）
     question_display: str = "split"  # 个人成绩单小题呈现：split=分列 / merged=合并
     show_big_questions: bool = False  # 是否显示主观大题汇总分列
+    config_path: str | None = None  # 考试条目 yaml 路径（内部用于缓存有效性判断）
 
     def effective_importance(self) -> str:
         """返回重要度：显式指定优先，否则由格式推导。"""
@@ -347,6 +348,7 @@ def _load_exam_file(
         short_name=short_name,
         question_display=question_display,
         show_big_questions=show_big_questions,
+        config_path=str(path),
     )
 
 

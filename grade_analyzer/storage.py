@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from .config import ExamConfig
 from .io_utils import read_parsed_table, write_parsed_table
 
 DELETED_MARKER = ".deleted"
+CONFIG_SIG = ".config_sig"
 
 
 def parsed_exam_dir(parsed_dir: str, exam: ExamConfig) -> Path:
@@ -30,7 +32,7 @@ def parsed_exam_dir(parsed_dir: str, exam: ExamConfig) -> Path:
 def is_parsed_fresh(
     parsed_dir: str, exam: ExamConfig, fmt: str = "csv"
 ) -> bool:
-    """规范表两张表均存在且不比原始文件旧（按 mtime）则视为可复用。"""
+    """规范表两张表均存在且不比原始文件/考试条目配置旧（按 mtime）则视为可复用。"""
     raw_path = Path(exam.full_path)
     if not raw_path.is_file():
         return False
@@ -42,7 +44,23 @@ def is_parsed_fresh(
     if any(not f.is_file() for f in files):
         return False
     raw_mtime = raw_path.stat().st_mtime
-    return all(f.stat().st_mtime >= raw_mtime for f in files)
+    if not all(f.stat().st_mtime >= raw_mtime for f in files):
+        return False
+    # 考试条目配置变更（如客观题数）也会使缓存失效
+    if exam.config_path:
+        cfg_path = Path(exam.config_path)
+        if cfg_path.is_file():
+            sig_path = exam_dir / CONFIG_SIG
+            if sig_path.is_file():
+                current = hashlib.sha256(cfg_path.read_bytes()).hexdigest()
+                if sig_path.read_text(encoding="utf-8").strip() != current:
+                    return False
+            else:
+                # 旧缓存无签名：回退到配置 mtime 比较
+                cfg_mtime = cfg_path.stat().st_mtime
+                if not all(f.stat().st_mtime >= cfg_mtime for f in files):
+                    return False
+    return True
 
 
 def read_score_summary(
@@ -77,6 +95,12 @@ def write_parsed_tables(
     exam_dir.mkdir(parents=True, exist_ok=True)
     write_parsed_table(score, str(exam_dir / f"score_summary.{fmt}"), fmt)
     write_parsed_table(questions, str(exam_dir / f"question_detail.{fmt}"), fmt)
+    # 记录考试条目配置签名：配置内容变化时缓存失效
+    if exam.config_path:
+        cfg_path = Path(exam.config_path)
+        if cfg_path.is_file():
+            sig = hashlib.sha256(cfg_path.read_bytes()).hexdigest()
+            (exam_dir / CONFIG_SIG).write_text(sig, encoding="utf-8")
 
 
 def class_summary_path(parsed_dir: str, exam: ExamConfig) -> Path:

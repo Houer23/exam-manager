@@ -109,6 +109,25 @@ pip install -r requirements.txt
 - `config/charts/config.yaml`：统计图分组、指标、颜色、字体、坐标轴（含横轴扩展系数 `xlim_factor`）、半提琴宽度（`violin.width`）等；
 - `config/results/config.yaml`：个人成绩单范围/样式、班级汇总页眉页脚/字体/边框等。
 
+### results 分组配置（个人成绩单范围与标签）
+
+`config/results/config.yaml` 的 `personal.scope` 决定个人成绩单包含哪些班级，以及文件名中的标签：
+
+- `mode: all`：全部班级，标签为"全部班级"；
+- `mode: teacher`：按教师分组，`teachers` 填字母代号（A/B/C…，自动解析为学科配置中的教师名）或直接填教师名；每个教师生成一个文件，**标签 = 教师名**；
+- `mode: custom`：自定义班级，`classes` 填班级规范名列表；标签自动判定——所选班级等于全部班级 → "全部班级"，恰好等于某位教师任教班级 → 教师名，否则 → "自定义"。
+
+示例：
+
+```yaml
+personal:
+  scope:
+    mode: teacher
+    teachers: [A]        # 或直接写教师名，如 [柯]
+```
+
+相关命令参数：`--summary-only` / `--strips-only` 只生成其中一种；`--no-merge-strips` 关闭多场个人成绩单合并。
+
 ### 配置文件修改注意事项
 
 所有配置文件均为 YAML（`yaml.safe_load` 解析），字符值带不带引号会影响类型解析：
@@ -140,6 +159,13 @@ python -m grade_analyzer.cli exam list --checkable   # 只看可 check 的场次
 python -m grade_analyzer.cli exam list --results-ready  # 只看可生成成绩单的场次
 python -m grade_analyzer.cli check                   # 校验名称/文件/满分等，FAIL 需修复
 ```
+
+`check` 说明：
+- 首次检查后写入**已检查标记**（含原始文件与考试条目配置签名）；再次 check 且原始文件/配置未变时，**跳过该场的信息打印**，只显示一行概要（上次 PASS / FAIL n 项），减少重复输出；
+- 原始文件或考试配置变化（如客观题数）会令缓存/标记失效，自动重新完整检查；
+- `check --force`：忽略已检查标记，强制重新检查全部；
+- `check --exam <考试名称或序号列表>`：单独检查指定场次（如 `check --exam 1,3`，序号与 `exam list` 一致）；
+- 汇总显示 `X 场检查（Y 场跳过）, Z 场有问题`。
 
 ### 4. 解析与运行
 

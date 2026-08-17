@@ -83,3 +83,29 @@ def test_is_parsed_fresh_follows_raw_mtime(tmp_path):
     future = time.time() + 10
     os.utime(raw, (future, future))
     assert is_parsed_fresh(str(tmp_path), exam) is False  # 原始文件变新
+
+
+def test_is_parsed_fresh_config_change_invalidates(tmp_path):
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    raw = raw_dir / "地理原始数据.xlsx"
+    raw.write_text("x", encoding="utf-8")
+    exam_yaml = tmp_path / "考试.yaml"
+    exam_yaml.write_text("name: 高一下联考\nobjective_question_count: 20\n", encoding="utf-8")
+    exam = _exam(folder=str(raw_dir))
+    exam.config_path = str(exam_yaml)
+
+    write_parsed_tables(
+        str(tmp_path), exam, pd.DataFrame({"a": [1]}), pd.DataFrame({"a": [1]})
+    )
+    assert is_parsed_fresh(str(tmp_path), exam) is True  # 规范表比配置新
+
+    # 仅改 mtime 不改内容：签名相同，缓存仍有效
+    later = time.time() + 10
+    os.utime(exam_yaml, (later, later))
+    assert is_parsed_fresh(str(tmp_path), exam) is True
+    # 修改配置内容（客观题数变化）-> 签名变化 -> 缓存失效
+    exam_yaml.write_text(
+        "name: 高一下联考\nobjective_question_count: 21\n", encoding="utf-8"
+    )
+    assert is_parsed_fresh(str(tmp_path), exam) is False

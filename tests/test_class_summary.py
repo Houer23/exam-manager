@@ -22,8 +22,24 @@ def test_subjective_pivot():
     wide, big, subj_cols, big_cols = _subjective_pivot(questions)
     assert subj_cols == ["26-1", "26-2", "27-1"]
     assert big_cols == ["26", "27"]
-    assert big.loc["S1", "26"] == 5.0
-    assert big.loc["S2", "27"] == 6.0
+
+
+def test_subjective_pivot_numeric_ids():
+    """主观题号为纯数字（int）时（配置客观题数后）也能正常透视。"""
+    questions = pd.DataFrame(
+        {
+            "student_id": ["S1", "S1", "S2", "S2"],
+            "question_id": [21, 22, 21, 22],
+            "question_type": ["主观"] * 4,
+            "score": [3.0, 4.0, 2.0, 5.0],
+            "full_score": [None] * 4,
+        }
+    )
+    wide, big, subj_cols, big_cols = _subjective_pivot(questions)
+    assert subj_cols == ["21", "22"]
+    assert big_cols == ["21", "22"]
+    assert wide.loc["S1", "21"] == 3.0
+    assert big.loc["S2", "22"] == 5.0
 
 
 def test_build_class_summaries(tmp_path):

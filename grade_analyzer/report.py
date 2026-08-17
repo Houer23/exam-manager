@@ -192,6 +192,8 @@ def _subjective_pivot(
     if subj.empty:
         return pd.DataFrame(), pd.DataFrame(), [], []
     subj = subj.copy()
+    # 主观题号可能是纯数字（如配置客观题数后 21/22）或带小题（26-1），统一转字符串
+    subj["question_id"] = subj["question_id"].astype(str)
     subj["大题号"] = subj["question_id"].str.split("-").str[0]
 
     def _qkey(qid: str) -> tuple[int, int]:
