@@ -36,6 +36,20 @@ def classify_question_header(header: str) -> tuple[str, str] | None:
     return None
 
 
+def classify_question_type(
+    header: str, objective_count: int | None = None
+) -> tuple[str, str] | None:
+    """判定题型：配置客观题数时题号大于该数为主观题；未配置时按题号格式回退。"""
+    parsed = classify_question_header(header)
+    if not parsed:
+        return None
+    qid, _ = parsed
+    if objective_count is not None:
+        base = int(qid.split("-")[0])
+        return qid, "主观" if base > objective_count else "客观"
+    return parsed
+
+
 class BaseAdapter(abc.ABC):
     """格式适配器基类。"""
 

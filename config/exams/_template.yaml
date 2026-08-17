@@ -19,6 +19,7 @@ importance: ""               # 留空 = 由 format 推导（joint=联考，weekl
 full_score: 100              # 留空 = 使用科目默认值
 objective_full_score: 50     # 留空 = 使用科目默认值；无默认时必填
 subjective_full_score: 50    # 留空 = 使用科目默认值；无默认时必填
+objective_question_count: "" # 客观题数：题号大于该数均为主观题；留空=按题号格式自动判定
 default_grade: ""            # 留空 = 使用全局默认年级（高一）
 sheet: ""                    # 留空 = 自动选择 sheet
 filter_by_selection: true    # 名单核对是否按七选三过滤：true=按选课过滤；false=按全部班级核对

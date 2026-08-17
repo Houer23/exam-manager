@@ -32,6 +32,16 @@ def build_parser() -> argparse.ArgumentParser:
         "check", help="识别并校验考试配置，不运行分析"
     )
     add_config_arg(check_parser)
+    check_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="忽略已检查标记，强制重新检查所有考试",
+    )
+    check_parser.add_argument(
+        "--exam",
+        default=None,
+        help="考试名称或序号列表（如 1,3；纯数字/逗号=按日期升序序号，否则按名称）；缺省=全部",
+    )
 
     parse_parser = subparsers.add_parser(
         "parse", help="解析原始文件并落盘规范表（可复用缓存）"
@@ -113,6 +123,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_p.add_argument(
         "--subjective-full-score", dest="subjective_full_score", type=float, default=None
+    )
+    add_p.add_argument(
+        "--objective-question-count",
+        dest="objective_question_count",
+        type=int,
+        default=None,
+        help="客观题数（题号大于该数均为主观题；留空=按题号格式自动判定）",
     )
     add_p.add_argument("--default-grade", dest="default_grade", default=None)
     add_p.add_argument("--sheet", default=None)
@@ -304,7 +321,13 @@ def main(argv: list[str] | None = None) -> int:
         from .checker import run_check
         from .config import load_config
 
-        return 1 if run_check(load_config(args.config)) else 0
+        config = load_config(args.config)
+        if args.exam:
+            from .pipeline import _resolve_exam_selection
+
+            selected, _, _ = _resolve_exam_selection(config, args.exam, None)
+            return 1 if run_check(config, exams=selected, force=args.force) else 0
+        return 1 if run_check(config, force=args.force) else 0
     elif args.command == "parse":
         from .pipeline import parse_exams
 
@@ -349,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
                 full_score=args.full_score,
                 objective_full_score=args.objective_full_score,
                 subjective_full_score=args.subjective_full_score,
+                objective_question_count=args.objective_question_count,
                 default_grade=args.default_grade,
                 sheet=args.sheet,
                 short_name=args.short_name,

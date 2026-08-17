@@ -359,7 +359,7 @@ def test_add_exam_interactive(tmp_path, monkeypatch):
     exams_dir = tmp_path / "exams"
     exams_dir.mkdir()
     cfg_path = _write_global(tmp_path, exams_dir, current_semester="高一第二学期")
-    answers = iter(["地理原始数据.xlsx", "", "地理", "期中联考"] + [""] * 14)
+    answers = iter(["地理原始数据.xlsx", "", "地理", "期中联考"] + [""] * 15)
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
     add_exam(str(cfg_path))
     cfg = load_config(str(cfg_path))
@@ -381,7 +381,7 @@ def test_add_exam_interactive_all_fields(tmp_path, monkeypatch):
         [
             "测试.xlsx", "高一第一学期", "地理", "测试",
             "2026-05-01", "", "限时练一", "merged", "true", "weekly", "模考",
-            "联考", "120", "60", "60", "高一", "", "false",
+            "联考", "120", "60", "60", "25", "高一", "", "false",
         ]
     )
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
@@ -399,6 +399,7 @@ def test_add_exam_interactive_all_fields(tmp_path, monkeypatch):
     assert e.full_score == 120.0
     assert e.objective_full_score == 60.0
     assert e.subjective_full_score == 60.0
+    assert e.objective_question_count == 25
     assert e.default_grade == "高一"
     assert e.filter_by_selection is False
 
@@ -463,3 +464,21 @@ def test_list_exams_shows_deleted(tmp_path):
 
     df = list_exams(str(cfg_path))
     assert df.iloc[0]["删除"] == "已删除"
+
+
+def test_list_exams_has_index_sorted(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(
+        exams_dir, "高一第二学期", "联考",
+        name="高一下地理联考", subject="地理",
+        file="联考.xlsx", date="2026-04-20",
+    )
+    _write_exam(
+        exams_dir, "高一第二学期", "周测",
+        name="高一下地理周测", subject="地理",
+        file="周测.xlsx", date="2026-03-25",
+    )
+    cfg_path = _write_global(tmp_path, exams_dir)
+    df = list_exams(str(cfg_path))
+    assert list(df["序号"]) == [1, 2]  # 日期升序：周测(03-25) -> 联考(04-20)
+    assert list(df["考试名称"]) == ["高一下地理周测", "高一下地理联考"]

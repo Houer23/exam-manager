@@ -147,6 +147,27 @@ def test_parse_exams_writes_and_reuses(tmp_path, capsys):
     assert "[复用]" not in capsys.readouterr().out
 
 
+def test_parse_with_objective_question_count(tmp_path):
+    """客观题数配置后：题号大于该数的纯数字题也认定为主观题。"""
+    from grade_analyzer.config import load_config
+    from grade_analyzer.pipeline import parse_exams
+    from grade_analyzer.storage import read_question_detail
+
+    parsed = tmp_path / "parsed"
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    exam_yaml = tmp_path / "exams" / "高一第二学期" / "周测.yaml"
+    text = exam_yaml.read_text(encoding="utf-8")
+    exam_yaml.write_text(text + "objective_question_count: 24\n", encoding="utf-8")
+
+    parse_exams(cfg_path)
+    cfg = load_config(cfg_path)
+    q = read_question_detail(str(parsed), cfg.exams[0], "csv")
+    subj_ids = set(q[q["question_type"] == "主观"]["question_id"])
+    assert "25" in subj_ids  # 题号 25 > 24，原客观题变主观
+    assert "26-1" in subj_ids
+
+
 def test_run_pipeline_writes_report_and_statistics(shared_parsed, tmp_path, capsys):
     import openpyxl
     from grade_analyzer.pipeline import run_pipeline

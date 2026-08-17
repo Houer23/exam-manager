@@ -1,6 +1,6 @@
 """题号表头识别与归一化的单元测试。"""
 
-from grade_analyzer.adapters.base import classify_question_header
+from grade_analyzer.adapters.base import classify_question_header, classify_question_type
 
 
 def test_classify_objective():
@@ -25,3 +25,17 @@ def test_classify_dash():
 def test_classify_unknown():
     assert classify_question_header("abc") is None
     assert classify_question_header("") is None
+
+
+def test_classify_type_with_count():
+    # 客观题数 25：题号 <=25 客观，>25 主观（含小题取大题号）
+    assert classify_question_type("10", 25) == ("10", "客观")
+    assert classify_question_type("25", 25) == ("25", "客观")
+    assert classify_question_type("26", 25) == ("26", "主观")
+    assert classify_question_type("26-1", 25) == ("26-1", "主观")
+
+
+def test_classify_type_fallback_without_count():
+    # 未配置客观题数：按题号格式回退（纯数字客观、带小题主观）
+    assert classify_question_type("5") == ("5", "客观")
+    assert classify_question_type("26(1)") == ("26-1", "主观")

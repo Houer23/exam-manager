@@ -204,6 +204,13 @@ def test_sort_exams_by_date():
     assert [e.name for e in sort_exams_by_date([e1, e2, e3])] == ["B", "C", "A"]
 
 
+def test_sort_exams_by_date_then_name():
+    e1 = _exam("B", "2026-03-01")
+    e2 = _exam("A", "2026-03-01")
+    e3 = _exam("C", "2026-01-01")
+    assert [e.name for e in sort_exams_by_date([e1, e2, e3])] == ["C", "A", "B"]
+
+
 def test_resolve_exam_by_index_positive():
     exams = [
         _exam("A", "2026-01-01"),

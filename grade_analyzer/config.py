@@ -26,7 +26,8 @@ _ANALYSIS_KEYS = {"pass_ratio", "excellent_ratio", "absent_strategy", "score_ban
 _EXAM_KEYS = {
     "name", "format", "type", "importance", "folder", "file", "subject",
     "semester", "date", "full_score", "objective_full_score",
-    "subjective_full_score", "default_grade", "sheet", "filter_by_selection",
+    "subjective_full_score", "objective_question_count", "default_grade",
+    "sheet", "filter_by_selection",
     "short_name", "question_display", "show_big_questions",
 }
 _SUBJECT_DEFAULT_KEYS = {"full_score", "objective_full_score", "subjective_full_score"}
@@ -65,6 +66,7 @@ class ExamConfig:
     full_score: float | None = None
     objective_full_score: float | None = None
     subjective_full_score: float | None = None
+    objective_question_count: int | None = None  # 客观题数（题号大于该数为主观题；留空=按格式判定）
     default_grade: str | None = None
     sheet: str | None = None
     filter_by_selection: bool = True  # 名单核对是否按七选三过滤
@@ -288,6 +290,19 @@ def _load_exam_file(
     subjective_full_score = _to_positive_float(
         raw.get("subjective_full_score"), "subjective_full_score", path, False
     )
+    raw_oqc = _clean(raw.get("objective_question_count"))
+    objective_question_count = None
+    if raw_oqc is not None:
+        try:
+            objective_question_count = int(str(raw_oqc))
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"{path}: objective_question_count 应为正整数，当前为 {raw_oqc!r}"
+            )
+        if objective_question_count <= 0:
+            raise ValueError(
+                f"{path}: objective_question_count 应大于 0，当前为 {objective_question_count}"
+            )
     default_grade = _clean(raw.get("default_grade"))
     sheet = _clean(raw.get("sheet"))
     short_name = _clean(raw.get("short_name"))
@@ -325,6 +340,7 @@ def _load_exam_file(
         full_score=full_score,
         objective_full_score=objective_full_score,
         subjective_full_score=subjective_full_score,
+        objective_question_count=objective_question_count,
         default_grade=default_grade,
         sheet=sheet,
         filter_by_selection=filter_by_selection,
@@ -660,6 +676,15 @@ def normalize_exam_name(
     parts = ""
     abbr = semester_abbr(semester) if semester else None
     if abbr and abbr not in name and semester not in name:
+        # 考试名已含年级（如 高一）时，去掉原年级，避免 高一下高一... 重复
+        grade = abbr[:-1]  # 学期简写去掉 上/下 -> 年级（如 高一）
+        if (
+            grade
+            and name.startswith(grade)
+            and not name.startswith(grade + "上")
+            and not name.startswith(grade + "下")
+        ):
+            name = name[len(grade):]
         parts += abbr
     if subject and subject not in name:
         aliases = (subject_aliases or {}).get(subject, [])

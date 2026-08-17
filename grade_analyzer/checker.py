@@ -10,12 +10,21 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from pathlib import Path
+
 import pandas as pd
+import yaml
 
 from .adapters.registry import auto_detect_format, known_format_hint
 from .config import AnalysisConfig, ExamConfig, normalize_exam_name
-from .detect import detect_subject_from_filename, extract_exam_name_from_filename
+from .detect import (
+    detect_subject_from_filename,
+    extract_exam_name_from_filename,
+    resolve_exam_name,
+)
 from .io_utils import read_raw_sheet
+from .outputs import type_dir
 from .quality import write_check_reports
 from .storage import read_score_summary
 
@@ -170,20 +179,92 @@ def _metadata_coverage_checks(
     return checks
 
 
-def run_check(config: AnalysisConfig) -> int:
-    """对所有考试条目执行 check，打印识别预览与校验清单，返回有 FAIL 的场次数。"""
+def _checked_mark_path(config: AnalysisConfig, exam_name: str) -> Path:
+    """已检查标记路径：data/output/quality/checked/<考试名>.yaml。"""
+    return type_dir(config.output, "quality") / "checked" / f"{exam_name}.yaml"
+
+
+def _read_checked_mark(config: AnalysisConfig, exam_name: str) -> dict | None:
+    path = _checked_mark_path(config, exam_name)
+    if not path.is_file():
+        return None
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def _write_checked_mark(
+    config: AnalysisConfig,
+    exam_name: str,
+    raw_path: Path,
+    has_fail: bool,
+    fail_count: int,
+) -> None:
+    path = _checked_mark_path(config, exam_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "exam": exam_name,
+        "raw_mtime": raw_path.stat().st_mtime if raw_path.is_file() else None,
+        "checked_at": datetime.now().isoformat(timespec="seconds"),
+        "has_fail": has_fail,
+        "fail_count": fail_count,
+    }
+    path.write_text(
+        yaml.safe_dump(data, allow_unicode=True), encoding="utf-8"
+    )
+
+
+def run_check(
+    config: AnalysisConfig,
+    exams: list[ExamConfig] | None = None,
+    force: bool = False,
+) -> int:
+    """对所有考试条目执行 check，打印识别预览与校验清单，返回有 FAIL 的场次数。
+
+    exams 指定时只检查这些场次（None = 全部）；
+    首次检查后写入已检查标记（含原始文件 mtime）；再次检查且原始文件未变时
+    跳过该场的信息打印（--force 可强制重新检查）。
+    """
     problems = 0
     checks_by_exam: dict[str, list[tuple[str, str, str]]] = {}
-    for exam in config.exams:
+    skipped = 0
+    exam_list = exams if exams is not None else config.exams
+    for exam in exam_list:
+        name = exam.name or resolve_exam_name(
+            exam, config.subjects, config.subject_aliases
+        ) or "（未命名）"
+        raw_path = Path(exam.full_path)
+        mark = _read_checked_mark(config, name)
+        if (
+            not force
+            and mark is not None
+            and raw_path.is_file()
+            and mark.get("raw_mtime") == raw_path.stat().st_mtime
+        ):
+            skipped += 1
+            status = (
+                "PASS"
+                if not mark.get("has_fail")
+                else f"FAIL {mark.get('fail_count', '?')} 项"
+            )
+            print(f"[跳过] {name}：已检查（原始文件无变化，上次 {status}）")
+            continue
         result = check_exam(exam, config)
-        name = result["preview"].get("名称") or "（未命名）"
         print(f"=== 检查: {name} ===")
         for check_name, status, detail in result["checks"]:
             print(f"  {check_name}: {detail}  [{status}]")
         checks_by_exam[name] = result["checks"]
-        if any(status == "FAIL" for _, status, _ in result["checks"]):
+        fail_count = sum(1 for _, s, _ in result["checks"] if s == "FAIL")
+        has_fail = fail_count > 0
+        if has_fail:
             problems += 1
+        _write_checked_mark(config, name, raw_path, has_fail, fail_count)
     for path in write_check_reports(config, checks_by_exam):
         print(f"[质量] {path}")
-    print(f"=== 汇总: {len(config.exams)} 场检查, {problems} 场有问题 ===")
+    print(
+        f"=== 汇总: {len(exam_list)} 场检查（{skipped} 场跳过）, "
+        f"{problems} 场有问题 ==="
+    )
     return problems

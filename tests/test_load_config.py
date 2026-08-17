@@ -263,6 +263,37 @@ def test_current_exam_list_loaded(tmp_path):
     assert cfg2.current_exam == [1, 3]
 
 
+def test_normalize_name_dedup_grade(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(
+        exams_dir, "高一第二学期", "周测",
+        name="高一限时练一", subject="地理",
+    )
+    cfg = load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
+    # 考试名已含年级"高一"，学期简写"高一下"不再重复年级
+    assert cfg.exams[0].name == "高一下地理限时练一"
+
+
+def test_objective_question_count_parsed(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(
+        exams_dir, "高一第一学期", "周测",
+        name="周测", objective_question_count=25,
+    )
+    cfg = load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
+    assert cfg.exams[0].objective_question_count == 25
+
+
+def test_objective_question_count_invalid_raises(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(
+        exams_dir, "高一第一学期", "周测",
+        name="周测", objective_question_count="abc",
+    )
+    with pytest.raises(ValueError, match="objective_question_count"):
+        load_config(str(_write_global(tmp_path, exams_dir=str(exams_dir))))
+
+
 def test_unknown_global_key_raises(tmp_path):
     cfg_path = _write_global(tmp_path, nope=1)
     with pytest.raises(ValueError, match="未知配置键"):

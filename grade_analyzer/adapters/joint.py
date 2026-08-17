@@ -15,7 +15,7 @@ import pandas as pd
 
 from ..config import ExamConfig
 from ..io_utils import read_raw_sheet
-from .base import BaseAdapter, classify_question_header
+from .base import BaseAdapter, classify_question_header, classify_question_type
 
 
 class JointAdapter(BaseAdapter):
@@ -94,10 +94,14 @@ class JointAdapter(BaseAdapter):
         # 答案列（字母）不是数值列，自动丢弃
         score_cols = [(j, h) for j, h in q_cols if is_numeric_col(j)]
         obj_cols = [
-            (j, h) for j, h in score_cols if classify_question_header(h)[1] == "客观"
+            (j, h)
+            for j, h in score_cols
+            if classify_question_type(h, exam.objective_question_count)[1] == "客观"
         ]
         subj_cols = [
-            (j, h) for j, h in score_cols if classify_question_header(h)[1] == "主观"
+            (j, h)
+            for j, h in score_cols
+            if classify_question_type(h, exam.objective_question_count)[1] == "主观"
         ]
         if not score_cols:
             raise ValueError(f"{exam.full_path}: 未找到得分列")
@@ -158,27 +162,28 @@ class JointAdapter(BaseAdapter):
 
         frames: list[pd.DataFrame] = []
         for j, h in obj_cols:
-            qid, _ = classify_question_header(h)
+            qid, qtype = classify_question_type(h, exam.objective_question_count)
             frames.append(
                 pd.DataFrame(
                     {
                         "exam_name": exam.name,
                         "student_id": id_series,
                         "question_id": qid,
-                        "question_type": "客观",
+                        "question_type": qtype,
                         "score": to_num(data.iloc[:, j]),
                         "full_score": None,
                     }
                 )
             )
         for j, h in subj_cols:
+            qid, qtype = classify_question_type(h, exam.objective_question_count)
             frames.append(
                 pd.DataFrame(
                     {
                         "exam_name": exam.name,
                         "student_id": id_series,
-                        "question_id": classify_question_header(h)[0],
-                        "question_type": "主观",
+                        "question_id": qid,
+                        "question_type": qtype,
                         "score": to_num(data.iloc[:, j]),
                         "full_score": None,
                     }

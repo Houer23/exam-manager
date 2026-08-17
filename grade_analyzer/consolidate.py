@@ -86,11 +86,16 @@ def merge_score_tables(
 
 
 def sort_exams_by_date(exams: list[ExamConfig]) -> list[ExamConfig]:
-    """按考试日期升序排序（同日期保持配置列表顺序），用于场次编号。"""
+    """按考试日期升序、同日期按考试名称排序，用于场次编号。"""
     return [
         exam
         for _, exam in sorted(
-            enumerate(exams), key=lambda pair: (pair[1].date or "", pair[0])
+            enumerate(exams),
+            key=lambda pair: (
+                pair[1].date or "",
+                pair[1].name or "",
+                pair[0],
+            ),
         )
     ]
 

@@ -25,6 +25,7 @@ from .config import (
     normalize_exam_name,
     semester_abbr,
 )
+from .consolidate import sort_exams_by_date
 from .detect import (
     detect_subject_from_filename,
     extract_exam_name_from_filename,
@@ -122,6 +123,7 @@ def add_exam(
     full_score: float | None = None,
     objective_full_score: float | None = None,
     subjective_full_score: float | None = None,
+    objective_question_count: int | None = None,
     default_grade: str | None = None,
     sheet: str | None = None,
     short_name: str | None = None,
@@ -183,6 +185,9 @@ def add_exam(
             "主观题满分（留空=科目默认）", None,
             default=_fmt_default(defaults.subjective_full_score) if defaults else None,
         )
+        objective_question_count = _ask(
+            "客观题数（题号大于该数为主观题，留空=自动判定）", None
+        )
         default_grade = _ask("默认年级", None, default=config.default_grade)
         sheet = _ask("Sheet 名（留空=自动选择）", None)
         filter_by_selection = _ask(
@@ -231,6 +236,11 @@ def add_exam(
             return None
         return float(v)
 
+    def _to_int(v):
+        if v in (None, ""):
+            return None
+        return int(v)
+
     def _to_bool(v):
         if v in (None, ""):
             return None
@@ -254,6 +264,7 @@ def add_exam(
         ("full_score", _to_float(full_score)),
         ("objective_full_score", _to_float(objective_full_score)),
         ("subjective_full_score", _to_float(subjective_full_score)),
+        ("objective_question_count", _to_int(objective_question_count)),
         ("default_grade", default_grade),
         ("sheet", sheet),
         ("filter_by_selection", _to_bool(filter_by_selection)),
@@ -447,9 +458,10 @@ def list_exams(
     """
     config = load_config(config_path)
     rows = []
-    for exam in config.exams:
-        if semester and exam.semester != semester:
-            continue
+    exams = list(config.exams)
+    if semester:
+        exams = [e for e in exams if e.semester == semester]
+    for idx, exam in enumerate(sort_exams_by_date(exams), 1):
         if exam.name is None:
             exam.name = resolve_exam_name(exam, config.subjects, config.subject_aliases)
         raw_exists = Path(exam.full_path).is_file()
@@ -462,6 +474,7 @@ def list_exams(
         full_score = exam.full_score or (defaults.full_score if defaults else None)
         rows.append(
             {
+                "序号": idx,
                 "考试名称": exam.name or "",
                 "学期": exam.semester or "",
                 "考试类型": exam.type,
@@ -477,7 +490,7 @@ def list_exams(
     return pd.DataFrame(
         rows,
         columns=[
-            "考试名称", "学期", "考试类型", "格式", "科目", "日期",
+            "序号", "考试名称", "学期", "考试类型", "格式", "科目", "日期",
             "满分", "检查", "成绩单", "删除",
         ],
     )

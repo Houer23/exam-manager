@@ -13,7 +13,7 @@ import pandas as pd
 
 from ..config import ExamConfig
 from ..io_utils import read_raw_sheet
-from .base import BaseAdapter, classify_question_header
+from .base import BaseAdapter, classify_question_header, classify_question_type
 
 
 class WeeklyAdapter(BaseAdapter):
@@ -134,7 +134,7 @@ class WeeklyAdapter(BaseAdapter):
 
         frames: list[pd.DataFrame] = []
         for j, h in question_cols:
-            qid, qtype = classify_question_header(h)
+            qid, qtype = classify_question_type(h, exam.objective_question_count)
             frames.append(
                 pd.DataFrame(
                     {
