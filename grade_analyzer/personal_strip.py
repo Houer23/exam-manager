@@ -26,10 +26,15 @@ _PAPER_DIMS = {
     "A3": {"width": 11.69, "height": 16.54},
     "Letter": {"width": 8.5, "height": 11.0},
 }
-_MERGED_COLS = [
-    "班级", "姓名", "考试", "班次", "校次",
-    "总分", "客观分", "主观分", "单选", "多选", "主观题",
-]
+def _type_score_cols(valid: pd.DataFrame) -> list[str]:
+    """得分表动态题型分列显示名（去掉 分 后缀，排除 客观分/主观分/满分列）。"""
+    return [
+        c[:-1]
+        for c in valid.columns
+        if c.endswith("分")
+        and not c.endswith("满分")
+        and c not in ("客观分", "主观分")
+    ]
 
 
 def _teacher_sets(config: AnalysisConfig, exam: ExamConfig) -> dict[str, set[str]]:
@@ -93,9 +98,10 @@ def _build_strip_rows(
         ascending=[True, not p.sort_by_score_desc, True],
     )
 
-    cols = ["班级", "姓名", "考试", "班次", "校次", "总分", "客观分", "主观分", "单选", "多选"]
+    type_cols = _type_score_cols(valid)
+    cols = ["班级", "姓名", "考试", "班次", "校次", "总分", "客观分", "主观分"] + type_cols
     cw = p.layout.column_widths
-    widths = list(cw["first10"])
+    widths = list(cw["first10"][:8]) + [6] * len(type_cols)
     if exam.question_display == "merged":
         merged_cols = [f"{p.merged_prefix}{b}{p.merged_suffix}" for b in big_cols]
         cols += merged_cols
@@ -134,9 +140,9 @@ def _build_strip_rows(
             srow["total_score"],
             srow["objective_score"],
             srow["subjective_score"],
-            srow["单选分"],
-            srow["多选分"],
         ]
+        for t in type_cols:
+            data.append(srow[f"{t}分"])
         if exam.question_display == "merged":
             for base, subs in subj_by_base.items():
                 vals = [
@@ -521,10 +527,6 @@ def _build_merged_rows(
     组内按 班级/平均总分/姓名/考号；不同场数分组间连续，不额外分页。
     """
     p = cfg.personal
-    cols = list(_MERGED_COLS)
-    widths = list(p.layout.column_widths["first10"]) + [
-        p.layout.column_widths["merged_question_cols"]
-    ]
 
     per_exam: list[tuple[ExamConfig, pd.DataFrame, dict[str, str]]] = []
     for exam, valid, questions in zip(exams, valid_list, questions_list):
@@ -543,6 +545,20 @@ def _build_merged_rows(
         v = valid[valid["class_name"].isin(classes)].copy()
         v["_sid"] = v["student_id"].astype(str)
         per_exam.append((exam, v, subj_str))
+
+    type_cols: list[str] = []
+    for _, v, _ in per_exam:
+        for t in _type_score_cols(v):
+            if t not in type_cols:
+                type_cols.append(t)
+    cols = (
+        ["班级", "姓名", "考试", "班次", "校次", "总分", "客观分", "主观分"]
+        + type_cols
+        + ["主观题"]
+    )
+    widths = list(p.layout.column_widths["first10"][:8]) + [6] * len(type_cols) + [
+        p.layout.column_widths["merged_question_cols"]
+    ]
 
     all_sids: set[str] = set()
     meta: dict[str, tuple[str, str]] = {}
@@ -597,21 +613,21 @@ def _build_merged_rows(
             if row.empty:
                 continue  # 该生未参加本场
             srow = row.iloc[0]
-            rows.append(
-                [
-                    cls,
-                    name,
-                    exam.effective_short_name,
-                    srow["班次"],
-                    srow["校次"],
-                    srow["total_score"],
-                    srow["objective_score"],
-                    srow["subjective_score"],
-                    srow["单选分"],
-                    srow["多选分"],
-                    subj_str.get(sid, ""),
-                ]
-            )
+            row_data = [
+                cls,
+                name,
+                exam.effective_short_name,
+                srow["班次"],
+                srow["校次"],
+                srow["total_score"],
+                srow["objective_score"],
+                srow["subjective_score"],
+            ]
+            for t in type_cols:
+                key = f"{t}分"
+                row_data.append(srow[key] if key in srow.index else None)
+            row_data.append(subj_str.get(sid, ""))
+            rows.append(row_data)
         if not drops[idx]:
             for _ in range(blank):
                 rows.append([None] * len(cols))

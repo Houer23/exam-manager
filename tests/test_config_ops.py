@@ -359,7 +359,7 @@ def test_add_exam_interactive(tmp_path, monkeypatch):
     exams_dir = tmp_path / "exams"
     exams_dir.mkdir()
     cfg_path = _write_global(tmp_path, exams_dir, current_semester="高一第二学期")
-    answers = iter(["地理原始数据.xlsx", "", "地理", "期中联考"] + [""] * 15)
+    answers = iter(["地理原始数据.xlsx", "", "地理", "期中联考"] + [""] * 16)
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
     add_exam(str(cfg_path))
     cfg = load_config(str(cfg_path))
@@ -381,7 +381,7 @@ def test_add_exam_interactive_all_fields(tmp_path, monkeypatch):
         [
             "测试.xlsx", "高一第一学期", "地理", "测试",
             "2026-05-01", "", "限时练一", "merged", "true", "weekly", "模考",
-            "联考", "120", "60", "60", "25", "高一", "", "false",
+            "联考", "120", "60", "60", "25", "听力，5；阅读，6-15", "高一", "", "false",
         ]
     )
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
@@ -400,6 +400,7 @@ def test_add_exam_interactive_all_fields(tmp_path, monkeypatch):
     assert e.objective_full_score == 60.0
     assert e.subjective_full_score == 60.0
     assert e.objective_question_count == 25
+    assert e.question_types == {"听力": [1, 2, 3, 4, 5], "阅读": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15]}
     assert e.default_grade == "高一"
     assert e.filter_by_selection is False
 

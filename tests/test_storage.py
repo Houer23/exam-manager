@@ -109,3 +109,59 @@ def test_is_parsed_fresh_config_change_invalidates(tmp_path):
         "name: 高一下联考\nobjective_question_count: 21\n", encoding="utf-8"
     )
     assert is_parsed_fresh(str(tmp_path), exam) is False
+
+
+def test_is_parsed_fresh_meta_config_invalidates(tmp_path):
+    """学科配置（teacher 列来源）变化应使解析缓存失效。"""
+    from grade_analyzer.config import AnalysisConfig
+
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    raw = raw_dir / "外语数据.xlsx"
+    raw.write_text("x", encoding="utf-8")
+    exam = ExamConfig(
+        name="高一下外语限时练",
+        semester="高一第二学期",
+        subject="外语",
+        folder=str(raw_dir),
+        file="外语数据.xlsx",
+    )
+    subjects_dir = tmp_path / "subjects"
+    classes_dir = tmp_path / "classes"
+    subjects_dir.mkdir()
+    classes_dir.mkdir()
+    cfg = AnalysisConfig(
+        subjects_dir=str(subjects_dir), classes_dir=str(classes_dir)
+    )
+    subject_file = subjects_dir / "高一第二学期_外语.yaml"
+    subject_file.write_text(
+        "subject: 外语\n"
+        "teacher_count: 1\n"
+        "teacher_names:\n"
+        "  A: Q\n"
+        "class_teachers:\n"
+        "  高一01班: A\n",
+        encoding="utf-8",
+    )
+    score = pd.DataFrame(
+        {"exam_name": ["高一下外语限时练"], "student_id": ["1"], "total_score": [70.0]}
+    )
+    questions = pd.DataFrame(
+        columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]
+    )
+    write_parsed_tables(str(tmp_path), exam, score, questions, config=cfg)
+    time.sleep(0.05)
+    assert is_parsed_fresh(str(tmp_path), exam, config=cfg) is True
+    # 修改学科配置（增加教师）→ 缓存失效
+    subject_file.write_text(
+        "subject: 外语\n"
+        "teacher_count: 2\n"
+        "teacher_names:\n"
+        "  A: Q\n"
+        "  B: W\n"
+        "class_teachers:\n"
+        "  高一01班: A\n"
+        "  高一02班: B\n",
+        encoding="utf-8",
+    )
+    assert is_parsed_fresh(str(tmp_path), exam, config=cfg) is False

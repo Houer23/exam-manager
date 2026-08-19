@@ -13,6 +13,7 @@ import pandas as pd
 
 from ..config import ExamConfig
 from ..io_utils import read_raw_sheet
+from ..question_types import resolve_question_types
 from .base import BaseAdapter, classify_question_header, classify_question_type
 
 
@@ -38,6 +39,9 @@ class WeeklyAdapter(BaseAdapter):
             raise ValueError(f"{exam.full_path}: 科目未解析（请先运行 check）")
 
         raw = read_raw_sheet(exam.full_path)
+        plan = resolve_question_types(
+            exam.question_types, exam.binary_split, exam.objective_question_count
+        )
         header_idx = self._find_header(raw)
         if header_idx is None:
             raise ValueError(f"{exam.full_path}: 未找到表头行（缺少 自定义考号/总分/班级）")
@@ -134,7 +138,9 @@ class WeeklyAdapter(BaseAdapter):
 
         frames: list[pd.DataFrame] = []
         for j, h in question_cols:
-            qid, qtype = classify_question_type(h, exam.objective_question_count)
+            qid, qtype = classify_question_type(
+                h, plan=plan, objective_count=exam.objective_question_count
+            )
             frames.append(
                 pd.DataFrame(
                     {

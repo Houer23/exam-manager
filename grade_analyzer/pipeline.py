@@ -115,7 +115,9 @@ def _ensure_parsed_ready(
         question_file = exam_dir / f"question_detail.{config.parsed_format}"
         if not score_file.is_file() or not question_file.is_file():
             issues.append(f"{exam.name}: 未解析")
-        elif not is_parsed_fresh(config.parsed_dir, exam, config.parsed_format):
+        elif not is_parsed_fresh(
+            config.parsed_dir, exam, config.parsed_format, config
+        ):
             issues.append(f"{exam.name}: 规范表已过期（原始文件已更新）")
     return issues
 
@@ -169,7 +171,7 @@ def parse_exams(
             continue
 
         if not reparse and is_parsed_fresh(
-            config.parsed_dir, exam, config.parsed_format
+            config.parsed_dir, exam, config.parsed_format, config
         ):
             print(f"[复用] {exam.name}: 规范表缓存有效，跳过解析")
             continue
@@ -180,6 +182,22 @@ def parse_exams(
         except (ValueError, FileNotFoundError) as exc:
             print(f"[失败] {exam.name}: {exc}")
             continue
+        # 配置模式（binary_split=false 或 >2 顶层题型）下未覆盖题号校验
+        from .question_types import resolve_question_types
+
+        plan = resolve_question_types(
+            exam.question_types, exam.binary_split, exam.objective_question_count
+        )
+        if plan is not None and plan.mode == "config":
+            uncovered = questions.loc[
+                questions["question_type"].eq(""), "question_id"
+            ]
+            if not uncovered.empty:
+                print(
+                    f"[失败] {exam.name}: 题型配置未覆盖题号 "
+                    f"{sorted(set(uncovered.astype(str).tolist()))}"
+                )
+                continue
 
         # 无学校列（或部分缺失）时，用全局默认学校填充
         if config.default_school:
@@ -192,12 +210,12 @@ def parse_exams(
         )
         # 清洗：考号/总分校验（失败终止）+ 班级归一化 + 质量清单
         score, issues = clean_score_table(score, exam, config)
-        questions = classify_objective_types(questions)
+        questions = classify_objective_types(questions, exam)
         score, questions = add_question_type_scores(score, questions)
         if len(issues):
             print(f"[质量] {exam.name}: {len(issues)} 条问题")
         write_parsed_tables(
-            config.parsed_dir, exam, score, questions, config.parsed_format
+            config.parsed_dir, exam, score, questions, config.parsed_format, config
         )
         fire_hook(
             ON_EXAM_PARSED, exam=exam, score=score, questions=questions, config=config

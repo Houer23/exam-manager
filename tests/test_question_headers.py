@@ -29,10 +29,10 @@ def test_classify_unknown():
 
 def test_classify_type_with_count():
     # 客观题数 25：题号 <=25 客观，>25 主观（含小题取大题号）
-    assert classify_question_type("10", 25) == ("10", "客观")
-    assert classify_question_type("25", 25) == ("25", "客观")
-    assert classify_question_type("26", 25) == ("26", "主观")
-    assert classify_question_type("26-1", 25) == ("26-1", "主观")
+    assert classify_question_type("10", objective_count=25) == ("10", "客观")
+    assert classify_question_type("25", objective_count=25) == ("25", "客观")
+    assert classify_question_type("26", objective_count=25) == ("26", "主观")
+    assert classify_question_type("26-1", objective_count=25) == ("26-1", "主观")
 
 
 def test_classify_type_fallback_without_count():

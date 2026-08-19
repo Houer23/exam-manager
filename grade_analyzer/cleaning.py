@@ -172,46 +172,46 @@ def compute_ranks(score: pd.DataFrame) -> None:
 def add_question_type_scores(
     score: pd.DataFrame, questions: pd.DataFrame
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """按题型汇总得分与满分。
+    """按题型动态汇总得分与满分。
 
     每题实际满分 = 该题最高得分；
-    单选满分/多选满分 = 该题型各题满分之和（每题实际总分 × 题数）；
-    score 表新增 单选分/多选分/单选满分/多选满分；
+    score 表为每个题型（除 客观/主观，对应 objective_score/subjective_score）新增
+    {题型}分 / {题型}满分（如 单选分/多选分/听力分/作文分）；
     questions 表回填每题 full_score。缺考学生的分项得分为空。
     """
     q = questions.copy()
     q["full_score"] = q.groupby("question_id")["score"].transform("max")
-    pivot = (
-        q[q["question_type"].isin(["单选", "多选"])]
-        .groupby(["student_id", "question_type"])["score"]
-        .sum()
-        .unstack(fill_value=0)
-    )
     score = score.copy()
-    score["单选分"] = score["student_id"].map(
-        pivot.get("单选", pd.Series(dtype=float))
-    )
-    score["多选分"] = score["student_id"].map(
-        pivot.get("多选", pd.Series(dtype=float))
-    )
-    type_full = (
-        q.groupby(["question_id", "question_type"])["full_score"]
-        .first()
-        .groupby("question_type")
-        .sum()
-    )
-    score["单选满分"] = type_full.get("单选", 0.0)
-    score["多选满分"] = type_full.get("多选", 0.0)
+    for qtype in q["question_type"].dropna().unique():
+        if qtype in ("客观", "主观"):
+            continue  # 对应 objective_score / subjective_score
+        sub = q[q["question_type"] == qtype]
+        score[f"{qtype}分"] = score["student_id"].map(
+            sub.groupby("student_id")["score"].sum()
+        )
+        score[f"{qtype}满分"] = (
+            sub.groupby("question_id")["full_score"].first().sum()
+        )
     return score, q
 
 
-def classify_objective_types(questions: pd.DataFrame) -> pd.DataFrame:
+def classify_objective_types(
+    questions: pd.DataFrame, exam=None
+) -> pd.DataFrame:
     """区分客观题中的单选题/多选题。
 
-    规则：按各题实际最高得分区分（题号从 1 开始），
-    最高得分较小的为单选题，较大的为多选题；
+    题型配置含 单选/多选 时以配置为准（不做自动区分）；
+    否则按各题实际最高得分区分（最高得分较小的为单选题，较大的为多选题）；
     若所有客观题最高得分相同，则该场无多选题（全部为单选题）。
     """
+    if exam is not None and exam.question_types:
+        from .question_types import resolve_question_types
+
+        plan = resolve_question_types(
+            exam.question_types, exam.binary_split, exam.objective_question_count
+        )
+        if plan is not None and ("单选" in plan.ranges or "多选" in plan.ranges):
+            return questions
     obj = questions[questions["question_type"] == "客观"]
     if obj.empty:
         return questions

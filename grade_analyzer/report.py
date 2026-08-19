@@ -226,6 +226,7 @@ def _class_frame(
     big: pd.DataFrame,
     subj_cols: list[str],
     big_cols: list[str],
+    type_cols: list[str],
 ) -> pd.DataFrame:
     """按固定列顺序组装单个班级的明细表（不含平均行）。"""
     cls = cls.sort_values(
@@ -238,9 +239,9 @@ def _class_frame(
         "总分": cls["total_score"].tolist(),
         "客观分": cls["objective_score"].tolist(),
         "主观分": cls["subjective_score"].tolist(),
-        "单选": cls["单选分"].tolist(),
-        "多选": cls["多选分"].tolist(),
     }
+    for t in type_cols:
+        data[t] = cls[f"{t}分"].tolist()
     for col in subj_cols:
         label = _display_qid(col)
         data[label] = (
@@ -257,6 +258,17 @@ def _class_frame(
     data["校次"] = cls["校次"].tolist()
     data["班次"] = cls["班次"].tolist()
     return pd.DataFrame(data)
+
+
+def _question_type_cols(cls: pd.DataFrame) -> list[str]:
+    """得分表动态题型分列显示名（去掉 分 后缀，排除 客观分/主观分/满分列）。"""
+    return [
+        c[:-1]
+        for c in cls.columns
+        if c.endswith("分")
+        and not c.endswith("满分")
+        and c not in ("客观分", "主观分")
+    ]
 
 
 def _append_average_rows(
@@ -344,14 +356,16 @@ def _apply_alignment(ws, frame: pd.DataFrame, cs: ClassSummaryConfig) -> None:
             ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
 
 
-def _apply_data_bars(ws, frame: pd.DataFrame, cs: ClassSummaryConfig) -> None:
-    """客观/主观/单选/多选及题目列数据条（启用与颜色来自配置）。"""
+def _apply_data_bars(
+    ws, frame: pd.DataFrame, cs: ClassSummaryConfig, type_cols: list[str]
+) -> None:
+    """客观/主观/题型分列及题目列数据条（启用与颜色来自配置）。"""
     if not cs.data_bar.enabled:
         return
     cols = list(frame.columns)
-    start = cols.index("多选") + 1
+    start = 5 + len(type_cols)
     end = cols.index("校次")
-    bar_cols = ["客观分", "主观分", "单选", "多选"] + cols[start:end]
+    bar_cols = ["客观分", "主观分"] + type_cols + cols[start:end]
     last_data_row = ws.max_row - 3
     for col in bar_cols:
         letter = get_column_letter(cols.index(col) + 1)
@@ -367,8 +381,10 @@ def _apply_data_bars(ws, frame: pd.DataFrame, cs: ClassSummaryConfig) -> None:
         ws.conditional_formatting.add(rng, rule)
 
 
-def _apply_table_borders(ws, frame: pd.DataFrame, cs: ClassSummaryConfig) -> None:
-    """表格框线来自配置；单选|多选与同大题小题去竖线可开关。"""
+def _apply_table_borders(
+    ws, frame: pd.DataFrame, cs: ClassSummaryConfig, type_cols: list[str]
+) -> None:
+    """表格框线来自配置；题型分列间与同大题小题去竖线可开关。"""
     if not cs.borders.enabled:
         return
     cols = list(frame.columns)
@@ -380,10 +396,10 @@ def _apply_table_borders(ws, frame: pd.DataFrame, cs: ClassSummaryConfig) -> Non
         remove_right.add(a)
         remove_left.add(b)
 
-    if cs.borders.remove_single_multi:
+    if cs.borders.remove_single_multi and "单选" in cols and "多选" in cols:
         boundary(cols.index("单选"), cols.index("多选"))
     if cs.borders.remove_same_big:
-        q_start = cols.index("多选") + 1
+        q_start = 5 + len(type_cols)
         q_end = cols.index("校次")
         sub_idx = [i for i in range(q_start, q_end) if "(" in cols[i]]
         for a, b in zip(sub_idx, sub_idx[1:]):
@@ -438,15 +454,16 @@ def _write_class_summary_file(
     path = exam_dir / filename
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         for class_name, cls in class_groups:
-            frame = _class_frame(cls, wide, big, subj_cols, big_cols)
+            type_cols = _question_type_cols(cls)
+            frame = _class_frame(cls, wide, big, subj_cols, big_cols, type_cols)
             frame.to_excel(writer, sheet_name=str(class_name), index=False)
             ws = writer.sheets[str(class_name)]
             _apply_sheet_fonts(ws, frame, cs)
             _append_average_rows(ws, frame, len(cls), cs)
             _apply_column_widths(ws, frame, cs)
             _apply_alignment(ws, frame, cs)
-            _apply_data_bars(ws, frame, cs)
-            _apply_table_borders(ws, frame, cs)
+            _apply_data_bars(ws, frame, cs, type_cols)
+            _apply_table_borders(ws, frame, cs, type_cols)
             _set_header_footer(
                 ws, exam, str(class_name), cls["total_score"], grade_stats, cs
             )

@@ -142,6 +142,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_p.add_argument("--show-big-questions", dest="show_big_questions", action="store_true")
     add_p.add_argument("--filter-by-selection", dest="filter_by_selection", action="store_true")
+    add_p.add_argument(
+        "--question-types",
+        dest="question_types",
+        default=None,
+        help="题型配置：题型名,数量或题号列表；多个用分号分隔（如 客观题,20;单选,1-10;多选,11-20;主观题,21-25）",
+    )
 
     update_p = exam_sub.add_parser("update", help="修改考试条目字段")
     update_p.add_argument("name", help="考试名称")
@@ -379,6 +385,7 @@ def main(argv: list[str] | None = None) -> int:
                 question_display=args.question_display,
                 show_big_questions=args.show_big_questions,
                 filter_by_selection=args.filter_by_selection,
+                question_types=args.question_types,
             )
         elif args.exam_command == "update":
             update_exam(

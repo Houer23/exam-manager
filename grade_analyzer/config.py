@@ -13,6 +13,8 @@ from pathlib import Path
 
 import yaml
 
+from .question_types import parse_question_types
+
 
 _GLOBAL_KEYS = {
     "analysis", "subjects", "subject_aliases", "subject_defaults",
@@ -29,6 +31,7 @@ _EXAM_KEYS = {
     "subjective_full_score", "objective_question_count", "default_grade",
     "sheet", "filter_by_selection",
     "short_name", "question_display", "show_big_questions",
+    "question_types", "binary_split",
 }
 _SUBJECT_DEFAULT_KEYS = {"full_score", "objective_full_score", "subjective_full_score"}
 _CLASS_CONFIG_KEYS = {"level", "course"}
@@ -73,6 +76,9 @@ class ExamConfig:
     short_name: str | None = None  # 考试简称（留空 = 使用考试全称）
     question_display: str = "split"  # 个人成绩单小题呈现：split=分列 / merged=合并
     show_big_questions: bool = False  # 是否显示主观大题汇总分列
+    # 题型配置：题型名 -> 题号列表（None=默认 客观题/主观题 + 单选/多选自动区分）
+    question_types: dict[str, list[int]] | None = None
+    binary_split: bool = True  # 二分配置：顶层题型 <=2 时按客观题数分客观/主观
     config_path: str | None = None  # 考试条目 yaml 路径（内部用于缓存有效性判断）
 
     def effective_importance(self) -> str:
@@ -325,6 +331,15 @@ def _load_exam_file(
     else:
         show_big_questions = bool(raw_sbq)
 
+    question_types = None
+    if "question_types" in raw and raw["question_types"] is not None:
+        question_types = parse_question_types(raw["question_types"])
+    raw_bs = raw.get("binary_split", True)
+    if isinstance(raw_bs, str):
+        binary_split = raw_bs.strip().lower() not in ("", "false", "0", "no", "否")
+    else:
+        binary_split = bool(raw_bs)
+
     # name 非必填：留空由文件名提取；规范名 = 学期简写 + 科目 + 考试名
     name = normalize_exam_name(name, semester, subject, subject_aliases)
 
@@ -348,6 +363,8 @@ def _load_exam_file(
         short_name=short_name,
         question_display=question_display,
         show_big_questions=show_big_questions,
+        question_types=question_types,
+        binary_split=binary_split,
         config_path=str(path),
     )
 

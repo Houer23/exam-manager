@@ -15,6 +15,7 @@ import pandas as pd
 
 from ..config import ExamConfig
 from ..io_utils import read_raw_sheet
+from ..question_types import resolve_question_types
 from .base import BaseAdapter, classify_question_header, classify_question_type
 
 
@@ -51,6 +52,23 @@ class JointAdapter(BaseAdapter):
             raise ValueError(f"{exam.full_path}: 科目未解析（请先运行 check）")
 
         raw = read_raw_sheet(exam.full_path)
+        plan = resolve_question_types(
+            exam.question_types, exam.binary_split, exam.objective_question_count
+        )
+
+        def obj_subj_type(h: str) -> str | None:
+            """返回题号所属 客观/主观 顶层（用于 客观分/主观分 聚合）。"""
+            parsed = classify_question_header(h)
+            if not parsed:
+                return None
+            qid, _ = parsed
+            base = int(qid.split("-")[0])
+            if plan is not None:
+                top = plan.top_of(base)
+                return top if top in ("客观", "主观") else None
+            return classify_question_type(
+                h, objective_count=exam.objective_question_count
+            )[1]
         header_idx = self._find_header(raw)
         if header_idx is None:
             raise ValueError(f"{exam.full_path}: 未找到表头行（缺少 考号/学校/班级）")
@@ -96,12 +114,12 @@ class JointAdapter(BaseAdapter):
         obj_cols = [
             (j, h)
             for j, h in score_cols
-            if classify_question_type(h, exam.objective_question_count)[1] == "客观"
+            if obj_subj_type(h) == "客观"
         ]
         subj_cols = [
             (j, h)
             for j, h in score_cols
-            if classify_question_type(h, exam.objective_question_count)[1] == "主观"
+            if obj_subj_type(h) == "主观"
         ]
         if not score_cols:
             raise ValueError(f"{exam.full_path}: 未找到得分列")
@@ -162,7 +180,9 @@ class JointAdapter(BaseAdapter):
 
         frames: list[pd.DataFrame] = []
         for j, h in obj_cols:
-            qid, qtype = classify_question_type(h, exam.objective_question_count)
+            qid, qtype = classify_question_type(
+                h, plan=plan, objective_count=exam.objective_question_count
+            )
             frames.append(
                 pd.DataFrame(
                     {
@@ -176,7 +196,9 @@ class JointAdapter(BaseAdapter):
                 )
             )
         for j, h in subj_cols:
-            qid, qtype = classify_question_type(h, exam.objective_question_count)
+            qid, qtype = classify_question_type(
+                h, plan=plan, objective_count=exam.objective_question_count
+            )
             frames.append(
                 pd.DataFrame(
                     {

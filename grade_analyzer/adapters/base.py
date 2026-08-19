@@ -12,6 +12,7 @@ import re
 import pandas as pd
 
 from ..config import ExamConfig
+from ..question_types import QuestionTypePlan
 
 
 _QUESTION_HEADER_PATTERNS = [
@@ -37,15 +38,26 @@ def classify_question_header(header: str) -> tuple[str, str] | None:
 
 
 def classify_question_type(
-    header: str, objective_count: int | None = None
+    header: str,
+    plan: QuestionTypePlan | None = None,
+    objective_count: int | None = None,
 ) -> tuple[str, str] | None:
-    """判定题型：配置客观题数时题号大于该数为主观题；未配置时按题号格式回退。"""
+    """判定题型：题型配置优先；其次客观题数（题号大于该数为主观题）；最后按题号格式。
+
+    配置模式（mode=config）下未覆盖题号返回题型 ""，由解析流程校验报错。
+    """
     parsed = classify_question_header(header)
     if not parsed:
         return None
     qid, _ = parsed
+    base = int(qid.split("-")[0])
+    if plan is not None:
+        qtype = plan.type_for(base)
+        if qtype:
+            return qid, qtype
+        if plan.mode == "config":
+            return qid, ""  # 未覆盖，由流程校验
     if objective_count is not None:
-        base = int(qid.split("-")[0])
         return qid, "主观" if base > objective_count else "客观"
     return parsed
 

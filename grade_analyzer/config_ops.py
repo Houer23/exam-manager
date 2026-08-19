@@ -31,6 +31,7 @@ from .detect import (
     extract_exam_name_from_filename,
     resolve_exam_name,
 )
+from .question_types import parse_question_types_text
 from .storage import is_exam_deleted, is_parsed_fresh, mark_exam_deleted, parsed_exam_dir
 
 # 全局配置可修改键白名单：键 -> 值类型（number/text）
@@ -130,6 +131,7 @@ def add_exam(
     question_display: str | None = None,
     show_big_questions: bool | None = None,
     filter_by_selection: bool | None = None,
+    question_types=None,
 ) -> None:
     """新增考试条目，写入 config/exams/<学期>/<文件名>.yaml。
 
@@ -188,6 +190,20 @@ def add_exam(
         objective_question_count = _ask(
             "客观题数（题号大于该数为主观题，留空=自动判定）", None
         )
+        while True:
+            qt_text = _ask(
+                "题型配置（题型名,数量或题号列表；多个用分号分隔；回车=不配置）",
+                None,
+                default="",
+            )
+            if not qt_text.strip():
+                question_types = None
+                break
+            try:
+                question_types = parse_question_types_text(qt_text)
+                break
+            except ValueError as exc:
+                print(f"[错误] {exc}")
         default_grade = _ask("默认年级", None, default=config.default_grade)
         sheet = _ask("Sheet 名（留空=自动选择）", None)
         filter_by_selection = _ask(
@@ -248,6 +264,9 @@ def add_exam(
             return v
         return str(v).strip().lower() in ("true", "1", "yes", "是")
 
+    if isinstance(question_types, str) and question_types.strip():
+        question_types = parse_question_types_text(question_types)
+
     fields = [
         ("subject", subject),
         ("semester", semester),
@@ -265,6 +284,7 @@ def add_exam(
         ("objective_full_score", _to_float(objective_full_score)),
         ("subjective_full_score", _to_float(subjective_full_score)),
         ("objective_question_count", _to_int(objective_question_count)),
+        ("question_types", question_types),
         ("default_grade", default_grade),
         ("sheet", sheet),
         ("filter_by_selection", _to_bool(filter_by_selection)),
@@ -436,7 +456,7 @@ def _parsed_status(config: AnalysisConfig, exam: ExamConfig) -> str:
     question_file = exam_dir / f"question_detail.{fmt}"
     if not score_file.is_file() and not question_file.is_file():
         return "未解析"
-    if is_parsed_fresh(config.parsed_dir, exam, fmt):
+    if is_parsed_fresh(config.parsed_dir, exam, fmt, config):
         return "已解析"
     return "已过期"
 

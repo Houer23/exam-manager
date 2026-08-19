@@ -18,6 +18,21 @@ from .io_utils import read_parsed_table, write_parsed_table
 
 DELETED_MARKER = ".deleted"
 CONFIG_SIG = ".config_sig"
+META_SIG = ".meta_sig"
+
+
+def _meta_sig(config, exam: ExamConfig) -> str:
+    """解析缓存元数据签名：学科配置 + 班级配置（teacher/class_level 列来源）。"""
+    parts: list[bytes] = []
+    if exam.semester and exam.subject:
+        subject_file = (
+            Path(config.subjects_dir) / f"{exam.semester}_{exam.subject}.yaml"
+        )
+        parts.append(subject_file.read_bytes() if subject_file.is_file() else b"<none-subject>")
+    if exam.semester:
+        classes_file = Path(config.classes_dir) / f"{exam.semester}.yaml"
+        parts.append(classes_file.read_bytes() if classes_file.is_file() else b"<none-classes>")
+    return hashlib.sha256(b"|".join(parts)).hexdigest()
 
 
 def parsed_exam_dir(parsed_dir: str, exam: ExamConfig) -> Path:
@@ -30,7 +45,7 @@ def parsed_exam_dir(parsed_dir: str, exam: ExamConfig) -> Path:
 
 
 def is_parsed_fresh(
-    parsed_dir: str, exam: ExamConfig, fmt: str = "csv"
+    parsed_dir: str, exam: ExamConfig, fmt: str = "csv", config=None
 ) -> bool:
     """规范表两张表均存在且不比原始文件/考试条目配置旧（按 mtime）则视为可复用。"""
     raw_path = Path(exam.full_path)
@@ -60,6 +75,30 @@ def is_parsed_fresh(
                 cfg_mtime = cfg_path.stat().st_mtime
                 if not all(f.stat().st_mtime >= cfg_mtime for f in files):
                     return False
+    # 学科/班级配置变化（teacher/class_level 列来源）也会使缓存失效
+    if config is not None:
+        sig_path = exam_dir / META_SIG
+        current = _meta_sig(config, exam)
+        if sig_path.is_file():
+            if sig_path.read_text(encoding="utf-8").strip() != current:
+                return False
+        else:
+            meta_files = [
+                Path(config.subjects_dir) / f"{exam.semester}_{exam.subject}.yaml"
+                if exam.semester and exam.subject
+                else None,
+                Path(config.classes_dir) / f"{exam.semester}.yaml"
+                if exam.semester
+                else None,
+            ]
+            meta_mtime = max(
+                (p.stat().st_mtime for p in meta_files if p and p.is_file()),
+                default=0,
+            )
+            if meta_mtime and not all(
+                f.stat().st_mtime >= meta_mtime for f in files
+            ):
+                return False
     return True
 
 
@@ -89,6 +128,7 @@ def write_parsed_tables(
     score: pd.DataFrame,
     questions: pd.DataFrame,
     fmt: str = "csv",
+    config=None,
 ) -> None:
     """写入规范表（科目总分表 + 小题明细表）。"""
     exam_dir = parsed_exam_dir(parsed_dir, exam)
@@ -101,6 +141,8 @@ def write_parsed_tables(
         if cfg_path.is_file():
             sig = hashlib.sha256(cfg_path.read_bytes()).hexdigest()
             (exam_dir / CONFIG_SIG).write_text(sig, encoding="utf-8")
+    if config is not None:
+        (exam_dir / META_SIG).write_text(_meta_sig(config, exam), encoding="utf-8")
 
 
 def class_summary_path(parsed_dir: str, exam: ExamConfig) -> Path:
