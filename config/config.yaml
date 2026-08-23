@@ -77,15 +77,15 @@ results_config_dir: config/results
 
 # --- 输出/数据位置文件夹 ---
 # 默认成绩单输入目录：考试配置 folder 留空时使用
-input_dir: K:\11. 常规工作\地理教学工作（遂昌中学）\考试管理2025年10月12日
+input_dir: ../考试管理/DataSource
 # 总输出目录（reports/statistics/charts/quality/run-info/merged 等均在其下）
-output_dir: data/output
+output_dir: ../考试管理/DataOut
 # reports 汇总报告文件名
 report_excel_name: 成绩分析汇总.xlsx
 # 规范表存储与复用
-parsed_dir: data/parsed
+parsed_dir: ../考试管理/DataOut/parsed
 parsed_format: csv
 # 名单目录：<学期>.xlsx（原始名单长表）+ <学期>_normalized.xlsx（规范化名单）
-roster_dir: data/roster
+roster_dir: ./考试管理/DataSource/roster
 # 成绩单输出目录（按学期归类）
-results_dir: data/output/results
+results_dir: ../考试管理/DataResults
