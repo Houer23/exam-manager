@@ -153,7 +153,7 @@ def parse_exams(
 
         if exam.format is None:
             try:
-                raw = read_raw_sheet(exam.full_path)
+                raw = read_raw_sheet(exam.full_path, sheet=exam.sheet)
             except (FileNotFoundError, ValueError) as exc:
                 print(f"[失败] {exam.name}: {exc}")
                 continue
