@@ -51,7 +51,7 @@ class JointAdapter(BaseAdapter):
         if not exam.subject:
             raise ValueError(f"{exam.full_path}: 科目未解析（请先运行 check）")
 
-        raw = read_raw_sheet(exam.full_path)
+        raw = read_raw_sheet(exam.full_path, sheet=exam.sheet)
         plan = resolve_question_types(
             exam.question_types, exam.binary_split, exam.objective_question_count
         )

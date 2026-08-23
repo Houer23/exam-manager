@@ -13,6 +13,8 @@
 - **考试条目管理**：`exam add / update / remove / list` 维护考试配置（交互式录入、重名冲突检测、删除标记），`config get/set` 管理全局配置；
 - **跨场分析**：合并规范表为长表/宽表，支持多学期、按考试类型筛选、基线场次对比；
 - **名单核对**：名单清洗（考号/班级规范化）与考试按七选三过滤核对；
+- **题型配置**：考试条目可配置题型（数量式/题号列表式、范围包含为子题型、二分配置 `binary_split`），单选/多选可按配置或按最大得分差异自动区分，分项列（听力分/作文分等）动态生成；
+- **插件系统**：从 `plugins/` 目录加载格式适配器、生命周期钩子与批处理任务（`task` 子命令），内置 `objective_analyze` 客观题得分分析插件；
 - **可配置化**：全局、图表、成绩单配置独立成文件，模板可生成与同步。
 
 ## 目录结构
@@ -26,6 +28,7 @@ exam-manager/
 │  ├─ checker.py          # check 校验
 │  ├─ config.py           # 全局配置与考试条目加载
 │  ├─ config_ops.py       # exam list / config get-set 等
+│  ├─ question_types.py   # 题型配置解析与方案（数量/列表、子题型、二分配置）
 │  ├─ report.py           # 统计与班级汇总
 │  ├─ personal_strip.py   # 个人成绩单
 │  ├─ dist_charts.py      # 统计图
@@ -43,6 +46,7 @@ exam-manager/
 │  ├─ parsed/             # 规范表缓存（不入库）
 │  ├─ roster/             # 学生名单（不入库）
 │  └─ output/             # 全部输出（不入库）
+├─ plugins/                # 插件目录（内置 objective_analyze：客观题得分分析）
 ├─ tests/                 # pytest 测试
 ├─ requirements.txt
 ├─ template_tools.py      # 模板/配置生成与扫描
@@ -62,7 +66,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-依赖：pandas、numpy、openpyxl、lxml、PyYAML、matplotlib、seaborn、pytest。
+依赖：pandas、numpy、openpyxl、lxml、PyYAML、matplotlib、seaborn、pytest、xlrd。
 
 ## 配置说明
 
@@ -95,9 +99,37 @@ pip install -r requirements.txt
 | `format` | `weekly` / `joint`，留空自动识别 |
 | `type` | 考试类型（默认/学考/模考…），联合分析筛选用 |
 | `full_score` 等 | 总分/客观/主观满分，留空用科目默认值 |
+| `objective_question_count` | 客观题数：题号大于该数为主观题；留空=按题号格式自动判定 |
+| `question_types` | 题型配置：题型名 -> 数量或题号列表，可动态增删题型；配置非空时以配置为准 |
+| `binary_split` | 二分配置（默认 `true`）：顶层题型 ≤2 时按客观题数分客观/主观，配置题型作为子题型；`false` 时完全按配置划分 |
 | `filter_by_selection` | 名单核对是否按七选三过滤，默认 `true` |
 
-也可用 `exam add` 交互式录入（参数式或逐项问答，必填项优先、其余按模板顺序，满分等默认值取自全局 `subject_defaults`）。
+也可用 `exam add` 交互式录入（参数式或逐项问答，必填项优先、其余按模板顺序，满分等默认值取自全局 `subject_defaults`）。交互录入包含题型配置项，也可用参数 `--question-types` 指定，例如：
+
+```bash
+python -m grade_analyzer.cli exam add --file 英语测试.xlsx --name 英语测试 --subject 外语 \
+  --semester 高一第二学期 --question-types "听力，5；阅读，6-15；作文题，16,"
+```
+
+### 题型配置 `question_types`
+
+题型名可任意增删（如 客观题/主观题/单选/多选/听力/作文题），配置非空时以配置为准，留空回退默认"主观题/客观题 + 单选/多选自动区分"。值为**数量式**或**题号列表式**：
+
+```yaml
+question_types:
+  听力: 5            # 数量式：1-5 题
+  阅读: 10           # 数量式：6-15 题
+  客观题: 16-30      # 列表式：16-30 题
+  单选: 16-22        # 子题型：范围完全含于 客观题
+  多选: 23-30
+  主观题: 31-35
+```
+
+- 数量式（纯数字）按顺序从 1 起连续分配，允许放在前面若干行；一旦出现列表式，其后不允许再出现数量式；
+- 列表式用逗号/短横线（如 `1,2,3-5`），`"5,"` 表示题号 5；
+- 范围**完全包含**时为子题型（小范围为子题型，用法同 单选/多选 分项列）；部分重叠报错；
+- 顶层题型数 ≤2 且 `binary_split: true` 时，客观/主观范围由 `objective_question_count` 确定，配置题型作为子题型；否则完全按配置划分；
+- 每题题型取包含该题号的最深子题型；分项列按题型动态生成（如 `听力分`、`作文分`），成绩单按存在的分项列显示。
 
 ### 班级与学科配置
 
@@ -182,7 +214,7 @@ python -m grade_analyzer.cli charts [--exam ...]      # 单独生成统计图
 python -m grade_analyzer.cli charts --class 10,11 [--per-class]  # 按 班级×考试 绘制（班级数字/区间 n-m）
 ```
 
-`results` 与 `charts` 只读规范表，**运行前必须先 `parse`**（未解析会提示"请先运行 parse"并正常结束）；可用 `exam list --results-ready` 确认哪些场次已就绪。原始成绩文件更新后规范表会标记"已过期"，需重新 `parse`（或 `parse --reparse` 强制重解析）。一句话流程：**放数据 → exam add → check → parse → exam list --results-ready → results / charts**。
+`results` 与 `charts` 只读规范表，**运行前必须先 `parse`**（未解析会提示"请先运行 parse"并正常结束）；可用 `exam list --results-ready` 确认哪些场次已就绪。原始成绩文件更新、考试条目配置（如题型/客观题数）或学科/班级配置（任课教师/层次）变化，都会使规范表缓存失效，需重新 `parse`（或 `parse --reparse` 强制重解析）。一句话流程：**放数据 → exam add → check → parse → exam list --results-ready → results / charts**。
 
 多场考试（≥2）时：merged 长表/宽表与成绩分析汇总文件名标注日期范围（如 `merged_long_20260325-20260420.csv`、`成绩分析汇总_20260325-20260420.xlsx`），单场不做 merge 落盘、报告标注该场日期；个人成绩单合并为一份（每生一个表头，每场考试一行，主观题列为各大题得分竖线合并字符串）。
 
@@ -193,6 +225,31 @@ python -m grade_analyzer.cli merge [--semester ...] [--types ...] [--baseline-ex
 python -m grade_analyzer.cli roster normalize [--semester ...]
 python -m grade_analyzer.cli roster check [--semester ...] [--exam ...]
 ```
+
+## 插件与批处理任务
+
+程序启动时从 `plugins/` 目录加载插件（清单 `plugin.yaml` + 入口 `plugin.py`），可注册格式适配器、生命周期钩子与批处理任务。插件编写说明见 [plugins/README.md](plugins/README.md)。
+
+### 批处理任务（task）
+
+```bash
+python -m grade_analyzer.cli task --list    # 列出已注册任务
+python -m grade_analyzer.cli task <任务名> [--plugin-config 路径] [--input-dir 路径] [--output-dir 路径] [--baseline 值]
+```
+
+### objective_analyze（客观题得分分析）
+
+读取一个"客观题得分明细"文件夹（各班 `N班.xls` + `全部班级.xls`），生成客观题得分汇总工作簿与得分率距平文件：
+
+```bash
+python -m grade_analyzer.cli task objective_analyze --input-dir "G:\...\限时练三(地理)客观题得分明细"
+```
+
+- 考试规范名称/学科从文件夹名推导（括号前为考试名、括号内为学科，映射项目 `subjects`/别名）；
+- 汇总分组 `summary_groups`：每个分组生成一个工作簿（成员班级 sheet + 全部班级 sheet + 得分率汇总），默认不分组；
+- 距平分组 `deviation_groups`：每个分组生成一个距平文件（默认按教师）；
+- 基线 `baseline`（别名 `bl`，命令行 `--baseline` 优先级最高）：`全部班级` 或分组名（教师名/层次/未分层）；
+- 输出默认 `data/output/task/<考试规范名称>/`；参数与分组/基线配置见 `plugins/objective_analyze/config.yaml`（未指定 `--plugin-config` 时自动读取该文件）。
 
 ## 输出位置
 
@@ -236,3 +293,4 @@ python -m pytest tests -q
 - `config/` 中可能含真实教师姓名等信息，仓库应保持私有；开源前需脱敏；
 - 所有文本文件统一 CRLF 行尾（`.gitattributes` 已强制）；
 - 考试条目（`config/exams/`）、班级与学科具体配置（`config/classes/`、`config/subjects/`）仅模板入库，具体配置本地维护；新增考试用 `exam add`。
+- 插件为本地 Python 代码，以完全权限执行，只应加载可信来源的插件。

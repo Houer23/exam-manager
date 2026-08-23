@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from .base import BaseAdapter
+from .export import ExportAdapter
 from .joint import JointAdapter
 from .weekly import WeeklyAdapter
 
@@ -62,3 +63,4 @@ def auto_detect_format(df: pd.DataFrame) -> str | None:
 # 注册内置适配器
 register(WeeklyAdapter())
 register(JointAdapter())
+register(ExportAdapter())

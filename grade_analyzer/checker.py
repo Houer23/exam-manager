@@ -65,7 +65,7 @@ def check_exam(exam: ExamConfig, config: AnalysisConfig) -> dict:
 
     raw = None
     try:
-        raw = read_raw_sheet(exam.full_path)
+        raw = read_raw_sheet(exam.full_path, sheet=exam.sheet)
         add_check("文件", "PASS", f"{exam.full_path}（{raw.shape[0]} 行 × {raw.shape[1]} 列）")
     except (FileNotFoundError, ValueError) as exc:
         add_check("文件", "FAIL", str(exc))
