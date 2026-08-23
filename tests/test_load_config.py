@@ -59,9 +59,9 @@ def test_default_school_loaded(tmp_path):
     exams_dir = tmp_path / "exams"
     _write_exam(exams_dir, "高一第一学期", "周测", name="周测")
     cfg = load_config(
-        str(_write_global(tmp_path, exams_dir=str(exams_dir), default_school="青田中学"))
+        str(_write_global(tmp_path, exams_dir=str(exams_dir), default_school="示例二中"))
     )
-    assert cfg.default_school == "青田中学"
+    assert cfg.default_school == "示例二中"
 
 
 def test_date_defaults_to_today(tmp_path):

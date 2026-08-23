@@ -9,7 +9,7 @@ from grade_analyzer.run_info import config_snapshot, exam_list_df, write_run_inf
 def test_config_snapshot_and_exam_list():
     config = AnalysisConfig(
         current_semester="高一第二学期",
-        default_school="遂昌中学",
+        default_school="示例一中",
         exams=[ExamConfig(name="测试", semester="高一第二学期", subject="地理")],
     )
     snapshot = config_snapshot(config)

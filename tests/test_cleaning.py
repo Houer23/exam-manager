@@ -104,7 +104,7 @@ def _score_df():
         {
             "student_id": ["250907010001", "250907010002"],
             "class_raw": ["高一年级13班", "4"],
-            "school": ["青田中学", "青田中学"],
+            "school": ["示例二中", "示例二中"],
             "total_score": [84.0, 70.0],
             "objective_score": [74.0, 40.0],
             "subjective_score": [10.0, 30.0],
@@ -147,7 +147,7 @@ def test_compute_ranks_competition_ranking():
         {
             "student_id": ["250907010001", "250907010002", "250907010003", "250907010004"],
             "class_name": ["高一01班", "高一01班", "高一01班", "高一02班"],
-            "school": ["青田中学", "青田中学", "青田中学", "青田中学"],
+            "school": ["示例二中", "示例二中", "示例二中", "示例二中"],
             "total_score": [90.0, 90.0, 80.0, 85.0],
         }
     )
@@ -166,7 +166,7 @@ def test_compute_ranks_skips_missing_group():
         {
             "student_id": ["250907010001", "250907010002"],
             "class_name": ["高一01班", ""],
-            "school": ["青田中学", "青田中学"],
+            "school": ["示例二中", "示例二中"],
             "total_score": [80.0, 70.0],
         }
     )
@@ -180,7 +180,7 @@ def test_compute_ranks_group_by_school_and_class():
         {
             "student_id": ["250907010001", "250907010002", "250907010003"],
             "class_name": ["高一10班", "高一10班", "高一10班"],
-            "school": ["青田中学", "青田中学", "遂昌中学"],
+            "school": ["示例二中", "示例二中", "示例一中"],
             "total_score": [80.0, 70.0, 90.0],
         }
     )
@@ -265,7 +265,7 @@ def test_filter_default_school():
     score = pd.DataFrame(
         {
             "student_id": ["A1", "A2", "B1"],
-            "school": ["遂昌中学", "遂昌中学", "青田中学"],
+            "school": ["示例一中", "示例一中", "示例二中"],
             "total_score": [70.0, 80.0, 90.0],
         }
     )
@@ -275,7 +275,7 @@ def test_filter_default_school():
             "question_id": ["1", "1", "1", "2"],
         }
     )
-    kept_score, kept_q = filter_default_school(score, questions, "遂昌中学")
+    kept_score, kept_q = filter_default_school(score, questions, "示例一中")
     assert set(kept_score["student_id"]) == {"A1", "A2"}
     assert set(kept_q["student_id"]) == {"A1", "A2"}
 

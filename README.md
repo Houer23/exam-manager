@@ -64,9 +64,14 @@ cd exam-manager
 python -m venv .venv
 .venv\Scripts\activate        # Windows；macOS/Linux 用 source .venv/bin/activate
 pip install -r requirements.txt
+python template_tools.py scan --mode existence   # 初始化配置：生成缺失的 config/config.yaml 等（已存在不覆盖）
 ```
 
 依赖：pandas、numpy、openpyxl、lxml、PyYAML、matplotlib、seaborn、pytest、xlrd。
+
+克隆后 `config/` 下仅保留模板（`_template.yaml`）与内置默认值，**实际配置不入库**。
+首次使用请先运行上面的模板工具初始化命令，再按需修改 `config/config.yaml`
+（如 `default_school`、各目录路径），并用 `python -m grade_analyzer.cli check` 校验后开始使用。
 
 ## 配置说明
 
@@ -210,8 +215,7 @@ python -m grade_analyzer.cli results --exam <考试名称> # 只生成班级汇�
 python -m grade_analyzer.cli results --summary-only   # 只要班级成绩汇总
 python -m grade_analyzer.cli results --strips-only    # 只要个人成绩单
 python -m grade_analyzer.cli results --no-merge-strips # 多场时个人成绩单不合并
-python -m grade_analyzer.cli charts [--exam ...]      # 单独生成统计图
-python -m grade_analyzer.cli charts --class 10,11 [--per-class]  # 按 班级×考试 绘制（班级数字/区间 n-m）
+python -m grade_analyzer.cli charts [--exam ...]      # 单独生成统计图（多种用法详见"统计图（charts）"节）
 ```
 
 `results` 与 `charts` 只读规范表，**运行前必须先 `parse`**（未解析会提示"请先运行 parse"并正常结束）；可用 `exam list --results-ready` 确认哪些场次已就绪。原始成绩文件更新、考试条目配置（如题型/客观题数）或学科/班级配置（任课教师/层次）变化，都会使规范表缓存失效，需重新 `parse`（或 `parse --reparse` 强制重解析）。一句话流程：**放数据 → exam add → check → parse → exam list --results-ready → results / charts**。
@@ -225,6 +229,47 @@ python -m grade_analyzer.cli merge [--semester ...] [--types ...] [--baseline-ex
 python -m grade_analyzer.cli roster normalize [--semester ...]
 python -m grade_analyzer.cli roster check [--semester ...] [--exam ...]
 ```
+
+## 统计图（charts）
+
+生成统计图需规范表已就绪（先 `parse`）。输出到 `data/output/charts/<学期>/`，样式由 `config/charts/config.yaml` 控制。
+
+### 单场组合图（默认，不带 --class）
+
+对每场选中的考试，按 `config/charts/config.yaml` 的 `group_by`（默认 `[层次, 教师]`）各生成一张组合图（半提琴图 + Q1/中位数/平均分/Q3 指标折线）：
+
+```bash
+python -m grade_analyzer.cli charts                        # 当前学期全部（按 current_exam 或全部）
+python -m grade_analyzer.cli charts --semester 高一第二学期  # 指定学期
+python -m grade_analyzer.cli charts --exam 高一下地理五月月考  # 指定一场
+python -m grade_analyzer.cli charts --exam 1,3             # 按日期升序序号选多场
+```
+
+- 文件名：`按<分组>_<日期8位>_<考试名>.png`（如 `按层次_20260528_高一下地理五月月考.png`）；
+- 单场图标题左侧显示考试日期（`YYYY年MM月DD日`，与成绩单页眉同格式），主标题右对齐；
+- `group_by` 可在 `config/charts/config.yaml` 中配置为 `层次` / `教师` 的组合，`enabled: false` 时跳过生成。
+
+### 班级×考试对比图（--class）
+
+按指定班级在选中考试中的成绩走势绘制对比图（需多场或多班级）：
+
+```bash
+python -m grade_analyzer.cli charts --class 10,11             # 多个班级一张图对比
+python -m grade_analyzer.cli charts --class 10-12             # 连续区间（含两端）
+python -m grade_analyzer.cli charts --class 14-12             # 反向区间（14,13,12）
+python -m grade_analyzer.cli charts --class 10,11 --per-class # 每个班级单独一张图
+python -m grade_analyzer.cli charts --exam 1,3 --class 10,11  # 与 --exam 组合（多场对比）
+```
+
+- 班级用数字（年级取默认年级，如 10 → 高一10班），支持逗号分隔与 `n-m` 区间；
+- 不传 `--per-class`：所选班级画在同一张图内对比；`--per-class`：每个班级单独一张图；
+- 文件名：`按班级_<日期范围>_<班级标签>.png`。
+
+### 说明
+
+- `charts` 只读规范表，运行前需先 `parse`（未就绪会提示"请先运行 parse"）；
+- `run` 完整流程也会按 charts 配置自动生成统计图；
+- 单场图与班级×考试图在标题/文件名中均含日期，便于区分场次。
 
 ## 插件与批处理任务
 
@@ -292,5 +337,6 @@ python -m pytest tests -q
 - `data/input/`、`data/parsed/`、`data/roster/`、`data/output/` 均被 `.gitignore` 忽略，原始成绩、名单（含考号/选课）与生成结果不入库；
 - `config/` 中可能含真实教师姓名等信息，仓库应保持私有；开源前需脱敏；
 - 所有文本文件统一 CRLF 行尾（`.gitattributes` 已强制）；
-- 考试条目（`config/exams/`）、班级与学科具体配置（`config/classes/`、`config/subjects/`）仅模板入库，具体配置本地维护；新增考试用 `exam add`。
+- `config/` 下实际配置（`config.yaml`、`charts/config.yaml`、`results/config.yaml`、考试条目、班级与学科配置）均不入库，仅模板/默认值入库；新环境需先运行
+  `python template_tools.py scan --mode existence` 初始化，再按需修改本地配置；新增考试用 `exam add`。
 - 插件为本地 Python 代码，以完全权限执行，只应加载可信来源的插件。

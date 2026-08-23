@@ -10,7 +10,20 @@ from grade_analyzer.config import load_config
 from grade_analyzer.pipeline import parse_exams
 
 
-def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None):
+def _sample_joint_school() -> str:
+    """读取本地样例联考文件的学校名（样例数据不入库，测试中不写死真实校名）。"""
+    from grade_analyzer.io_utils import read_raw_sheet
+
+    raw = read_raw_sheet("data/input/测试样例/地理原始数据.xlsx")
+    for r in range(min(6, len(raw))):
+        for j, v in enumerate(raw.iloc[r].tolist()):
+            if str(v).strip() == "学校":
+                value = raw.iloc[r + 1, j]
+                return str(value).strip() if value is not None else ""
+    return "示例二中"
+
+
+def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None, default_school="示例二中"):
     exams_dir = tmp_path / "exams"
     classes_dir = tmp_path / "classes"
     subjects_dir = tmp_path / "subjects"
@@ -52,7 +65,7 @@ def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None):
         "classes_dir": str(classes_dir),
         "subjects_dir": str(subjects_dir),
         "parsed_dir": str(parsed_dir),
-        "default_school": "青田中学",
+        "default_school": default_school,
         "output_dir": str(out_dir or tmp_path / "out"),
         "report_excel_name": "成绩分析汇总.xlsx",
         "results_dir": str((out_dir or tmp_path / "out") / "results"),
@@ -120,7 +133,7 @@ def test_parse_exams_writes_and_reuses(tmp_path, capsys):
     assert question_path.is_file()
     score_df = pd.read_csv(score_path, encoding="utf-8-sig")
     assert len(score_df) > 400
-    assert (score_df["school"] == "青田中学").all()
+    assert (score_df["school"] == "示例二中").all()
     assert (score_df["grade"] == "高一").all()
     assert (score_df["class_name"] == "高一13班").any()
     assert {"班次", "校次"} <= set(score_df.columns)
@@ -342,7 +355,7 @@ def test_run_results_merge_strips_false_generates_per_exam(shared_parsed, tmp_pa
 
     parsed = shared_parsed
     out = tmp_path / "out"
-    cfg_path = _setup(tmp_path, parsed, out)
+    cfg_path = _setup(tmp_path, parsed, out, default_school=_sample_joint_school())
     # 追加第二场联考条目（真实样例）
     (tmp_path / "exams" / "高一第二学期" / "联考.yaml").write_text(
         "name: 高一下地理期中联考\n"

@@ -72,14 +72,14 @@ def test_merge_score_tables():
         ["250907010001", "250907010002"],
         [70.0, 80.0],
         [0.7, 0.8],
-        "高一10班", "高一", "青田中学",
+        "高一10班", "高一", "示例二中",
     )
     df2 = _score_df(
         "高一下地理限时练一",
         ["250907010001", "250907010003"],
         [84.0, 90.0],
         [0.84, 0.9],
-        "高一13班", "高一", "遂昌中学",
+        "高一13班", "高一", "示例一中",
     )
     long_df, wide = merge_score_tables([(e1, df1), (e2, df2)])
 
@@ -144,12 +144,12 @@ def test_run_merge_writes_outputs(tmp_path):
     e2 = ExamConfig(name="高一下地理限时练一", type="默认", semester="高一第二学期", date="2026-03-25")
     write_parsed_tables(
         str(parsed), e1,
-        _score_df("高一下地理期中联考", ["250907010001", "250907010002"], [70.0, 80.0], [0.7, 0.8], "高一10班", "高一", "青田中学"),
+        _score_df("高一下地理期中联考", ["250907010001", "250907010002"], [70.0, 80.0], [0.7, 0.8], "高一10班", "高一", "示例二中"),
         pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
     )
     write_parsed_tables(
         str(parsed), e2,
-        _score_df("高一下地理限时练一", ["250907010001"], [84.0], [0.84], "高一13班", "高一", "遂昌中学"),
+        _score_df("高一下地理限时练一", ["250907010001"], [84.0], [0.84], "高一13班", "高一", "示例一中"),
         pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
     )
     _write_exam_yaml(exams_dir, "高一第二学期", "联考", "高一下地理期中联考", "data/input/测试样例", "地理原始数据.xlsx", date="2026-04-20")
@@ -176,12 +176,12 @@ def test_run_merge_with_baseline(tmp_path):
     e2 = ExamConfig(name="高一上地理基准", type="默认", semester="高一第一学期", date="2026-01-10")
     write_parsed_tables(
         str(parsed), e1,
-        _score_df("高一下地理期中联考", ["250907010001"], [70.0], [0.7], "高一10班", "高一", "青田中学"),
+        _score_df("高一下地理期中联考", ["250907010001"], [70.0], [0.7], "高一10班", "高一", "示例二中"),
         pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
     )
     write_parsed_tables(
         str(parsed), e2,
-        _score_df("高一上地理基准", ["250907010001"], [60.0], [0.6], "高一02班", "高一", "青田中学"),
+        _score_df("高一上地理基准", ["250907010001"], [60.0], [0.6], "高一02班", "高一", "示例二中"),
         pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
     )
     _write_exam_yaml(exams_dir, "高一第二学期", "联考", "高一下地理期中联考", "data/input/测试样例", "地理原始数据.xlsx", date="2026-04-20")
@@ -274,7 +274,7 @@ def test_run_merge_single_exam_skips_files(tmp_path):
     )
     write_parsed_tables(
         str(parsed), e1,
-        _score_df("高一下地理限时练一", ["250907010001"], [84.0], [0.84], "高一13班", "高一", "遂昌中学"),
+        _score_df("高一下地理限时练一", ["250907010001"], [84.0], [0.84], "高一13班", "高一", "示例一中"),
         pd.DataFrame(columns=["exam_name", "student_id", "question_id", "question_type", "score", "full_score"]),
     )
     _write_exam_yaml(

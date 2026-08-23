@@ -42,6 +42,11 @@ config/classes/*
 config/subjects/*
 !config/subjects/_template.yaml
 
+# 全局/图表/成绩单实际配置：仅模板/默认值入库，实际配置本地维护
+config/config.yaml
+config/charts/config.yaml
+config/results/config.yaml
+
 # 日志
 *.log
 
