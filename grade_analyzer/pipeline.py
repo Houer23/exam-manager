@@ -95,7 +95,7 @@ def _resolve_exam_selection(
                 seen.add(exam.name)
         selected = sort_exams_by_date(selected)
         return selected, [e.name for e in selected], scope_semester
-    return scope, None, scope_semester
+    return sort_exams_by_date(scope), None, scope_semester
 
 
 def _ensure_parsed_ready(

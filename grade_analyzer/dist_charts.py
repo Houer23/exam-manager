@@ -23,11 +23,22 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from datetime import datetime
 
 from .chart_config import METRIC_NAMES, ChartsConfig
 from .config import ExamConfig, OutputConfig
 from .consolidate import date_range_suffix
 from .outputs import type_dir
+
+
+def _title_date(date_str: str | None) -> str:
+    """考试日期 -> 标题左侧日期（YYYY-MM-DD -> YYYY年MM月DD日，与成绩单页眉一致）。"""
+    if not date_str:
+        return ""
+    try:
+        return datetime.strptime(str(date_str), "%Y-%m-%d").strftime("%Y年%m月%d日")
+    except ValueError:
+        return str(date_str)
 
 _METRIC_COL = {
     "Q1": "Q1",
@@ -209,10 +220,22 @@ def build_group_chart(
         ax.set_yticklabels(list(positions.keys()))
     ax.set_xlabel("成绩", size=charts_cfg.font.label_size)
     ax.set_ylabel("班级", size=charts_cfg.font.label_size)
+    title_date = _title_date(exam.date)
     ax.set_title(
         f"{exam.name} 按{group_col}组合图（半提琴+指标）",
         size=charts_cfg.font.title_size,
+        loc="right" if title_date else "center",
     )
+    if title_date:
+        ax.text(
+            0,
+            1.0,
+            title_date,
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            size=charts_cfg.font.title_size,
+        )
     handles, labels = ax.get_legend_handles_labels()
     if handles:
         ax.legend(
