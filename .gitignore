@@ -64,4 +64,5 @@ Thumbs.db
 .env.local
 !.env.example
 
-# 本地测试临时目录.pytest_tmp/
+# 本地测试临时目录
+.pytest_tmp/
