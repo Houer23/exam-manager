@@ -654,3 +654,136 @@ def test_run_missing_all_class_summary(tmp_path):
             input_dir=str(only_dir),
             output_dir=str(out_dir),
         )
+
+
+def _write_detail_exam_entry(tmp_path: Path, raw_name: str) -> Path:
+    """登记一个 file 与小题分原始文件同名的考试条目。"""
+    exams_dir = tmp_path / "exams" / "高一第二学期"
+    exams_dir.mkdir(parents=True, exist_ok=True)
+    entry = exams_dir / "期中联考.yaml"
+    entry.write_text(
+        "subject: 地理\n"
+        "semester: 高一第二学期\n"
+        "date: '2026-05-20'\n"
+        "folder: .\n"
+        f"file: {raw_name}\n"
+        "name: 高一下地理期中联考\n"
+        "short_name: 期中联考\n",
+        encoding="utf-8",
+    )
+    return entry
+
+
+def _make_detail_raw(tmp_path: Path) -> Path:
+    """构造小题分（含答案）原始文件：答案区 + 得分区。"""
+    import pandas as pd
+
+    raw_path = tmp_path / "期中联考地理原始数据.xlsx"
+    pd.DataFrame(
+        [
+            ["姓名", "考号", "学校", "班级", "1", "2", "3", "1", "2", "3"],
+            ["张三", "1001", "测试中学", "高一1班", "A", "B", "AB", 2, 2, 3],
+            ["李四", "1002", "测试中学", "高一1班", "A", "A", "AC", 2, 0, 3],
+            ["王五", "1003", "测试中学", "高一2班", "B", "B", "AB", 2, 2, 3],
+            ["赵六", "1004", "测试中学", "高一2班", "A", "A", "AC", 0, 2, 0],
+        ]
+    ).to_excel(raw_path, index=False, header=False)
+    return raw_path
+
+
+def _detail_sum_path(out_dir: Path) -> Path:
+    return (
+        out_dir
+        / "高一下地理期中联考"
+        / "高一下地理期中联考_客观题得分汇总（全部班级）.xlsx"
+    )
+
+
+def test_detail_flow_file_input(tmp_path, monkeypatch):
+    """input_dir 直接指向小题分原始文件 → 提示选择学校后生成汇总。"""
+    global_cfg, plugin_cfg, out_dir = _write_configs(tmp_path, exam_date="2026-05-20")
+    raw = _make_detail_raw(tmp_path)
+    _write_detail_exam_entry(tmp_path, raw.name)
+    answers = iter(["测试中学"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    assert (
+        analyze.run(
+            config_path=str(global_cfg),
+            plugin_config=str(plugin_cfg),
+            input_dir=str(raw),
+            output_dir=str(out_dir),
+        )
+        == 0
+    )
+    sum_file = _detail_sum_path(out_dir)
+    assert sum_file.is_file()
+    wb = load_workbook(sum_file)
+    assert wb.sheetnames == ["1班", "2班", "全部班级", "得分率汇总"]
+    ws1 = wb["1班"]
+    assert ws1["A3"].value == "第1题"
+    assert ws1["B3"].value == "单选题"
+    assert ws1["C3"].value == 2
+    assert abs(ws1["D3"].value - 1.0) < 1e-9
+    assert abs(ws1["E3"].value - 2.0) < 1e-9
+    assert ws1["F3"].value == "A"
+    assert abs(ws1["G3"].value - 1.0) < 1e-9
+    assert ws1["B5"].value == "多选题"
+    ws_all = wb["全部班级"]
+    assert ws_all["A3"].value == "第1题"
+    assert ws_all["F3"].value in (None, "")
+    assert abs(ws_all["D3"].value - 0.75) < 1e-9
+    ws2 = wb["2班"]
+    assert ws2["F4"].value in (None, "")
+
+def test_detail_flow_folder_without_class_files(tmp_path, monkeypatch):
+    """文件夹无 N班.xls → 提示原始文件名称与学校后走新流程。"""
+    global_cfg, plugin_cfg, out_dir = _write_configs(tmp_path, exam_date="2026-05-20")
+    raw = _make_detail_raw(tmp_path)
+    _write_detail_exam_entry(tmp_path, raw.name)
+    answers = iter([raw.name, "测试中学"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    assert (
+        analyze.run(
+            config_path=str(global_cfg),
+            plugin_config=str(plugin_cfg),
+            input_dir=str(raw.parent),
+            output_dir=str(out_dir),
+        )
+        == 0
+    )
+    assert _detail_sum_path(out_dir).is_file()
+
+def test_detail_build_sheets_unit(tmp_path):
+    """build_detail_class_sheets：班级 sheet 行结构、满分/正确答案规则。"""
+    global_cfg, _plugin_cfg, _out = _write_configs(tmp_path)
+    cfg = load_config(str(global_cfg))
+    raw = _make_detail_raw(tmp_path)
+    sheets = analyze.build_detail_class_sheets(raw, cfg, "高一第二学期", "地理")
+    names = [s.class_name for s in sheets]
+    assert names == ["1班", "2班", "全部班级"]
+    row1 = sheets[0].rows[0]
+    assert row1[:6] == ["第1题", "单选题", 2, 1.0, 2.0, "A"]
+    assert abs(row1[6] - 1.0) < 1e-9
+    all_rows = sheets[2].rows
+    assert all_rows[0][5] in (None, "")
+    assert all_rows[1][5] in (None, "")
+    assert all_rows[2][1] == "多选题"
+
+
+def test_detail_school_invalid_retry(tmp_path, monkeypatch):
+    """学校不存在时提示重新输入，正确后继续生成。"""
+    global_cfg, plugin_cfg, out_dir = _write_configs(tmp_path, exam_date="2026-05-20")
+    raw = _make_detail_raw(tmp_path)
+    _write_detail_exam_entry(tmp_path, raw.name)
+    answers = iter(["不存在的学校", "测试中学"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    assert (
+        analyze.run(
+            config_path=str(global_cfg),
+            plugin_config=str(plugin_cfg),
+            input_dir=str(raw),
+            output_dir=str(out_dir),
+        )
+        == 0
+    )
+    assert _detail_sum_path(out_dir).is_file()

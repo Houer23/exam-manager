@@ -26,7 +26,9 @@ from openpyxl.formatting.rule import ColorScaleRule, DataBarRule
 from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
 
+from grade_analyzer.cleaning import normalize_class_name
 from grade_analyzer.config import load_config, normalize_exam_name
+from grade_analyzer.detect import detect_subject_from_filename
 
 FOLDER_SUFFIX = "客观题得分明细"
 CLASS_SUM_NAME = "全部班级"
@@ -72,6 +74,7 @@ _PLUGIN_CONFIG_KEYS = {
     "deviation_groups",
     "baseline",
     "bl",
+    "school",
 }
 _DATE_RE = re.compile(r"^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?$")
 _SUMMARY_ROWS = [
@@ -96,6 +99,10 @@ class ExamDateAborted(RuntimeError):
 
 class InputDirAborted(RuntimeError):
     """输入目录错误次数过多，任务中止。"""
+
+
+class SchoolInputAborted(RuntimeError):
+    """学校选择错误次数过多，任务中止。"""
 
 
 @dataclass
@@ -794,16 +801,96 @@ def _ask_input_dir(max_errors: int = 2) -> str:
             raise InputDirAborted()
 
 
-def _resolve_input_dir(input_dir_arg: str | None, raw: dict, max_errors: int) -> str:
-    """按优先级解析数据源文件夹：--input-dir > 插件配置 input_dir > 交互输入。"""
-    src_dir = input_dir_arg or raw.get("input_dir")
-    if src_dir:
-        path = Path(src_dir)
-        if not path.is_dir():
-            raise FileNotFoundError(f"输入文件夹不存在: {path}")
-        return str(path)
-    print("[客观题] 未指定数据源文件夹，请输入数据源文件夹路径")
-    return _ask_input_dir(max_errors=max_errors)
+_RAW_EXTS = {".xls", ".xlsx", ".csv"}
+
+
+def _resolve_input(
+    input_dir_arg: str | None, raw: dict, max_errors: int
+) -> tuple[Path, str]:
+    """解析输入源，返回 (路径, mode)。
+
+    mode: class_files=分班明细文件夹；detail=小题分（含答案）原始文件。
+    兼容：文件→detail；文件夹含 N班.xls→class_files；
+    文件夹无 N班.xls→交互提示输入原始成绩文件名称→detail。
+    """
+    src = (input_dir_arg or raw.get("input_dir") or "").strip()
+    if src:
+        path = Path(src)
+        if path.is_file():
+            if path.suffix.lower() not in _RAW_EXTS:
+                raise ValueError(
+                    f"不支持的原始成绩文件类型: {path.suffix}（支持 {sorted(_RAW_EXTS)}）"
+                )
+            return path, "detail"
+        if path.is_dir():
+            try:
+                class_files = discover_class_files(path)
+            except ValueError:
+                class_files = []
+            if class_files:
+                return path, "class_files"
+            print(
+                "[客观题] 文件夹中未发现 N班.xls / 全部班级.xls，"
+                "按小题分（含答案）原始文件流程处理"
+            )
+            return _ask_raw_file_name(path, max_errors=max_errors), "detail"
+        raise FileNotFoundError(f"输入路径不存在: {path}")
+    print("[客观题] 未指定数据源，请输入数据源文件夹或小题分原始文件路径")
+    return _ask_source(max_errors=max_errors)
+
+
+def _ask_source(max_errors: int) -> tuple[Path, str]:
+    """交互输入数据源（文件夹或小题分原始文件），错误达上限后中止。"""
+    errors = 0
+    while True:
+        try:
+            value = input("请输入数据源文件夹或小题分原始文件路径：").strip()
+        except EOFError:
+            raise InputDirAborted()
+        if not value:
+            errors += 1
+            print("[客观题] 输入不能为空")
+            if errors >= max_errors:
+                raise InputDirAborted()
+            continue
+        path = Path(value)
+        if path.is_file() and path.suffix.lower() in _RAW_EXTS:
+            return path, "detail"
+        if path.is_dir():
+            try:
+                class_files = discover_class_files(path)
+            except ValueError:
+                class_files = []
+            if class_files:
+                return path, "class_files"
+            return _ask_raw_file_name(path, max_errors=max_errors), "detail"
+        errors += 1
+        print(f"[客观题] 路径不存在或不是有效数据源: {value!r}")
+        if errors >= max_errors:
+            raise InputDirAborted()
+
+
+def _ask_raw_file_name(folder: Path, max_errors: int = 2) -> Path:
+    """在给定文件夹中交互输入小题分原始文件名称（兼容子目录相对路径）。"""
+    errors = 0
+    while True:
+        try:
+            value = input(f"请输入原始成绩文件名称（位于 {folder}，可含子目录相对路径）：").strip()
+        except EOFError:
+            raise InputDirAborted()
+        if not value:
+            errors += 1
+            print("[客观题] 输入不能为空")
+            if errors >= max_errors:
+                raise InputDirAborted()
+            continue
+        path = folder / value
+        if path.is_file() and path.suffix.lower() in _RAW_EXTS:
+            return path
+        errors += 1
+        print(f"[客观题] 文件不存在或类型不支持: {path}")
+        if errors >= max_errors:
+            raise InputDirAborted()
 
 
 def _parse_bool(value, default: bool = True) -> bool:
@@ -865,6 +952,255 @@ def _resolve_exam_date(
     return _ask_exam_date(max_errors=int(raw.get("max_date_input_errors", 2)))
 
 
+
+def _read_detail_frame(path: Path) -> pd.DataFrame:
+    """读取小题分原始文件（xls/xlsx/csv，不处理表头）。"""
+    if path.suffix.lower() == ".csv":
+        return pd.read_csv(path, header=None, dtype=object)
+    return pd.read_excel(path, header=None, dtype=object, sheet_name=0)
+
+
+def _detail_header_idx(raw: pd.DataFrame) -> int | None:
+    """定位小题分表头行（含 姓名/考号）。"""
+    for i, row in raw.iterrows():
+        cells = {str(v).strip() for v in row.tolist()}
+        if {"姓名", "考号"} <= cells:
+            return i
+    return None
+
+
+def _is_number(value) -> bool:
+    try:
+        float(value)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _normalize_answer(value) -> str:
+    """答案归一：去空白、大写；仅保留 A-D 字母组合。"""
+    if value is None:
+        return ""
+    text = re.sub(r"\s+", "", str(value)).upper()
+    return text if re.fullmatch(r"[A-D]+", text) else ""
+
+
+def _match_detail_exam(config, semester: str, subject: str | None, file_name: str):
+    """在考试配置目录中匹配小题分文件对应条目：文件名优先，其次学期+科目唯一。"""
+    base = Path(file_name).name
+    candidates = []
+    for exam in config.exams:
+        if exam.semester != semester:
+            continue
+        if exam.subject and subject and exam.subject != subject:
+            continue
+        if Path(exam.file or "").name == base:
+            return exam
+        candidates.append(exam)
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
+def _detail_fallback_name(path: Path, semester: str, subject: str, config) -> str | None:
+    """从文件名推导考试名称（去常见后缀后按规范拼接）；失败返回 None。"""
+    stem = path.stem
+    for suffix in ("原始数据", "成绩数据", "小题得分明细", "成绩"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    stem = stem.strip("-_ ")
+    if not stem:
+        return None
+    return normalize_exam_name(stem, semester, subject, config.subject_aliases)
+
+
+
+def _distinct_schools(path: Path) -> list[str]:
+    """返回小题分文件中出现过的学校列表（无学校列返回空）。"""
+    raw = _read_detail_frame(path)
+    hidx = _detail_header_idx(raw)
+    if hidx is None:
+        return []
+    header = [str(v).strip() for v in raw.iloc[hidx].tolist()]
+    if "学校" not in header:
+        return []
+    school_col = header.index("学校")
+    schools = set()
+    for v in raw.iloc[hidx + 1 :, school_col].tolist():
+        text = str(v).strip() if v is not None else ""
+        if text and text not in ("nan", "None"):
+            schools.add(text)
+    return sorted(schools)
+
+
+def _validate_detail_school(path: Path, school: str) -> None:
+    """校验给定学校存在于小题分数据中。"""
+    schools = _distinct_schools(path)
+    if schools and school not in schools:
+        raise ValueError(f"学校 {school!r} 不在数据中（可选: {'、'.join(schools)}）")
+
+
+def _resolve_detail_school(path: Path, config, max_errors: int) -> str | None:
+    """交互选择筛选学校（存在性校验，失败重输，错误达上限后中止）。
+
+    数据无学校列时返回 None（不过滤）。默认值：config.default_school 若在数据中，
+    否则取第一个学校。
+    """
+    schools = _distinct_schools(path)
+    if not schools:
+        return None
+    default = (config.default_school or "").strip()
+    if default not in schools:
+        default = schools[0]
+    print(f"[客观题] 数据中的学校: {'、'.join(schools)}")
+    errors = 0
+    while True:
+        try:
+            value = input(f"请输入用于筛选的学校（回车使用 {default}）：").strip()
+        except EOFError:
+            raise SchoolInputAborted()
+        if not value:
+            value = default
+        if value in schools:
+            return value
+        errors += 1
+        print(f"[客观题] 学校 {value!r} 不存在，请重新输入")
+        if errors >= max_errors:
+            raise SchoolInputAborted()
+
+
+
+def build_detail_class_sheets(
+    path: Path,
+    config,
+    semester: str,
+    subject: str | None,
+    school: str | None = None,
+) -> list:
+    """从小题分（含小题答案）原始文件生成与分班文件同构的班级明细。
+
+    规则：每题满分=该题全体最高得分；得分率=平均分/满分（缺考不计）；
+    正确答案按班取满分数作答中的唯一答案，无法唯一判定时留空；
+    题型按答案长度推断（多字母→多选题）；选项分布按 A/B/C/D/多选/未选。
+    """
+    raw = _read_detail_frame(path)
+    hidx = _detail_header_idx(raw)
+    if hidx is None:
+        raise ValueError(f"{path}: 未找到表头行（需要 姓名/考号 列）")
+    header = [str(v).strip() for v in raw.iloc[hidx].tolist()]
+    col = {name: j for j, name in enumerate(header)}
+    for need in ("姓名", "考号", "班级"):
+        if need not in col:
+            raise ValueError(f"{path}: 表头缺少 {need} 列")
+    data = raw.iloc[hidx + 1 :].copy()
+    id_col = col["考号"]
+    data = data[data.iloc[:, id_col].map(
+        lambda v: not (v is None or str(v).strip() in ("", "nan", "None"))
+    )].reset_index(drop=True)
+    if data.empty:
+        raise ValueError(f"{path}: 未找到数据行")
+    class_col = col["班级"]
+    filter_school = school or (config.default_school if "学校" in col else None)
+    if "学校" in col and filter_school:
+        sch = data.iloc[:, col["学校"]].map(
+            lambda v: str(v).strip() if v is not None else ""
+        )
+        matched = data[sch == filter_school]
+        if matched.empty:
+            raise ValueError(f"学校 {filter_school} 在数据中无记录")
+        data = matched.reset_index(drop=True)
+    candidates = []
+    for j, h in enumerate(header):
+        h2 = re.sub(r"\.0$", "", h) if re.fullmatch(r"\d+\.0", h) else h
+        if re.fullmatch(r"\d+", h2):
+            candidates.append((j, h2))
+    def _kind(values, want):
+        vals = [str(v).strip() for v in values
+                if v is not None and str(v).strip() not in ("", "nan", "None")]
+        if not vals:
+            return False
+        if want == "letters":
+            return all(re.fullmatch(r"[A-Da-d]+", v) for v in vals)
+        return all(_is_number(v) for v in vals)
+    ans_map: dict[str, int] = {}
+    score_map: dict[str, int] = {}
+    for j, h2 in candidates:
+        sample = data.iloc[:15, j].tolist()
+        if _kind(sample, "letters"):
+            ans_map.setdefault(h2, j)
+        elif _kind(sample, "scores"):
+            score_map.setdefault(h2, j)
+    if not score_map:
+        raise ValueError(f"{path}: 未找到客观题得分列（纯数字题号列）")
+    if not ans_map:
+        print("[客观题] 警告: 未识别到答案列，正确答案/选项分布将置空")
+    question_labels = sorted(set(score_map) | set(ans_map), key=lambda x: int(x))
+    def _norm_class(v) -> str:
+        text = str(v).strip() if v is not None else ""
+        cls, _g = normalize_class_name(text, config.default_grade)
+        return cls
+    data["_cls"] = data.iloc[:, class_col].map(_norm_class)
+    class_names = sorted({c for c in data["_cls"].tolist() if c},
+                         key=lambda c: (int(re.search(r"\d+", c).group()), c))
+    header_row = ["题号", "题型", "分值", "得分率", "平均分", "正确答案",
+                 "选项分布", "", "", "", "", ""]
+    subheader_row = ["", "", "", "", "", "", "A", "B", "C", "D", "多选", "未选"]
+    qmeta = []
+    for label in question_labels:
+        scol = score_map[label]
+        acol = ans_map.get(label)
+        full = float(pd.to_numeric(data.iloc[:, scol], errors="coerce").max())
+        qmeta.append((int(label), full, scol, acol))
+    sheets = []
+    used_names = set()
+    for cls in class_names + [CLASS_SUM_NAME]:
+        if cls == CLASS_SUM_NAME:
+            sheet_name = CLASS_SUM_NAME
+        else:
+            short = _short_class_name(cls)
+            if short in used_names:
+                print(f"[客观题] 警告: 班级 {cls} 与已有班级短名重复，使用完整班级名")
+                sheet_name = cls
+            else:
+                sheet_name = short
+        used_names.add(sheet_name)
+        subset = data if cls == CLASS_SUM_NAME else data[data["_cls"] == cls]
+        rows = []
+        for label, full, scol, acol in qmeta:
+            scores = pd.to_numeric(subset.iloc[:, scol], errors="coerce")
+            mean = float(scores.mean()) if scores.notna().any() else 0.0
+            rate = mean / full if full > 0 else 0.0
+            ans = None
+            if acol is not None:
+                ans = data.iloc[:, acol].map(_normalize_answer).reindex(subset.index).fillna("")
+            correct = ""
+            if ans is not None and full > 0:
+                full_ans = ans[(scores - full).abs() < 1e-9]
+                full_ans = full_ans[full_ans != ""]
+                uniq = set(full_ans.tolist())
+                if len(uniq) == 1:
+                    correct = next(iter(uniq))
+            multi = bool(ans is not None and any(len(a) > 1 for a in ans.tolist()))
+            qtype = "多选题" if (len(correct) > 1 or (not correct and multi)) else "单选题"
+            dists = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            if ans is not None:
+                n = max(len(ans), 1)
+                bucket = {"A": 0, "B": 0, "C": 0, "D": 0, "多选": 0, "未选": 0}
+                for a in ans.tolist():
+                    if a == "":
+                        bucket["未选"] += 1
+                    elif len(a) == 1 and a in "ABCD":
+                        bucket[a] += 1
+                    else:
+                        bucket["多选"] += 1
+                dists = [bucket[k] / n for k in ("A", "B", "C", "D", "多选", "未选")]
+            full_value = int(full) if float(full).is_integer() else full
+            rows.append([f"第{label}题", qtype, full_value if full > 0 else 0,
+                         rate, mean, correct, *dists])
+        sheets.append(ClassSheet(sheet_name, header_row, subheader_row, rows))
+    return sheets
+
 def run(
     config_path: str = "config/config.yaml",
     plugin_config: str | None = None,
@@ -892,36 +1228,82 @@ def run(
         raise ValueError(f"max_date_input_errors 应 >= 1，当前为 {max_errors}")
 
     try:
-        src_dir = _resolve_input_dir(input_dir, raw, max_errors)
+        src, mode = _resolve_input(input_dir, raw, max_errors)
     except InputDirAborted:
         print("[客观题] 输入目录错误次数过多，已中止，未生成任何文件")
         return 1
-    src = Path(src_dir)
 
-    prefix, _ = _split_folder_name(src.name)
-    exam_name, subject = derive_exam_info(
-        src.name, semester, config, raw.get("subject")
-    )
-    try:
-        iso_date = _resolve_exam_date(raw, config, exam_name, semester, subject, prefix)
-    except ExamDateAborted:
-        print("[客观题] 未确认使用今日日期，已中止，未生成任何文件")
-        return 1
-    exam_date = _format_exam_date(iso_date)
-
-    out = Path(_resolve_output_dir(output_dir, raw, exam_name))
-    out.mkdir(parents=True, exist_ok=True)
-
-    print(f"[客观题] 输入目录: {src}")
-    print(f"[客观题] 考试规范名称: {exam_name}（学科: {subject or '未识别'}）")
-
-    files = discover_class_files(src)
-    sheets: list[ClassSheet] = []
-    for path in files:
-        print(f"[客观题] 处理文件: {path}")
-        sheets.append(read_class_sheet(path))
-    if not any(s.class_name == CLASS_SUM_NAME for s in sheets):
-        raise ValueError(f"输入文件夹缺少 {CLASS_SUM_NAME}.xls")
+    if mode == "class_files":
+        prefix, _ = _split_folder_name(src.name)
+        exam_name, subject = derive_exam_info(
+            src.name, semester, config, raw.get("subject")
+        )
+        try:
+            iso_date = _resolve_exam_date(raw, config, exam_name, semester, subject, prefix)
+        except ExamDateAborted:
+            print("[客观题] 未确认使用今日日期，已中止，未生成任何文件")
+            return 1
+        exam_date = _format_exam_date(iso_date)
+        out = Path(_resolve_output_dir(output_dir, raw, exam_name))
+        out.mkdir(parents=True, exist_ok=True)
+        print(f"[客观题] 输入目录: {src}")
+        print(f"[客观题] 考试规范名称: {exam_name}（学科: {subject or '未识别'}）")
+        files = discover_class_files(src)
+        sheets: list[ClassSheet] = []
+        for path in files:
+            print(f"[客观题] 处理文件: {path}")
+            sheets.append(read_class_sheet(path))
+        if not any(s.class_name == CLASS_SUM_NAME for s in sheets):
+            raise ValueError(f"输入文件夹缺少 {CLASS_SUM_NAME}.xls")
+    else:
+        subject = raw.get("subject") or detect_subject_from_filename(
+            src.name, config.subjects, config.subject_aliases
+        )
+        if not subject:
+            raise ValueError(
+                "无法识别科目，请在插件配置中填写 subject 或在原始文件名中包含科目名"
+            )
+        entry = _match_detail_exam(config, semester, subject, src.name)
+        exam_name = entry.name if entry is not None else _detail_fallback_name(
+            src, semester, subject, config
+        )
+        if not exam_name:
+            raise ValueError(
+                "无法推导考试名称：请在 config/exams 中登记对应考试条目，"
+                "或在原始文件名中包含考试名称"
+            )
+        if raw.get("exam_date"):
+            iso_date = _parse_date(raw["exam_date"])
+        elif entry is not None and getattr(entry, "date", None):
+            iso_date = entry.date
+        else:
+            try:
+                iso_date = _resolve_exam_date(
+                    raw, config, exam_name, semester, subject, src.stem
+                )
+            except ExamDateAborted:
+                print("[客观题] 未确认使用今日日期，已中止，未生成任何文件")
+                return 1
+        exam_date = _format_exam_date(iso_date)
+        out = Path(_resolve_output_dir(output_dir, raw, exam_name))
+        out.mkdir(parents=True, exist_ok=True)
+        print(f"[客观题] 小题分文件: {src}")
+        print(f"[客观题] 考试规范名称: {exam_name}（学科: {subject}）")
+        school_override = (raw.get("school") or "").strip() or None
+        try:
+            if school_override:
+                _validate_detail_school(src, school_override)
+                filter_school = school_override
+            else:
+                filter_school = _resolve_detail_school(src, config, max_errors)
+        except SchoolInputAborted:
+            print("[客观题] 学校选择错误次数过多，已中止，未生成任何文件")
+            return 1
+        sheets = build_detail_class_sheets(
+            src, config, semester, subject, school=filter_school
+        )
+        if not any(s.class_name == CLASS_SUM_NAME for s in sheets):
+            raise ValueError("内部错误：小题分流程缺少 全部班级 sheet")
 
     class_names = [s.class_name for s in sheets if s.class_name != CLASS_SUM_NAME]
     summary_types = _parse_group_types(raw.get("summary_groups"), "summary_groups")
