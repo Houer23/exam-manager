@@ -21,19 +21,32 @@ _QUESTION_HEADER_PATTERNS = [
     re.compile(r"^(\d+)-(\d+)$"),         # 主观小题：26-1
 ]
 
+# 主观分组题号（一列对应多个小题/圈码）：17(1)(2)、19(1)(2)(3)①、19(3)②(4)
+_GROUPED_SUB_RE = re.compile(r"^(\d+)(?:[（(]\d+[）)]|[\u2460-\u2473])+$")
+_FULL_TO_HALF_PAREN = str.maketrans({"（": "(", "）": ")"})
+
 
 def classify_question_header(header: str) -> tuple[str, str] | None:
     """识别题号表头，返回 (规范题号, 题型)；无法识别返回 None。
 
-    规范题号：客观题 "N"；主观小题 "N-M"（全角/半角括号、短横线统一为短横线）。
+    规范题号：
+    - 客观题 "N"；
+    - 主观小题（单个小题）"N-M"（全角/半角括号、短横线统一为短横线）；
+    - 主观分组（一列含多个小题号/圈码）保留括号形式，如 "17(1)(2)"、"19(1)(2)(3)①"。
     """
-    for pattern in _QUESTION_HEADER_PATTERNS:
-        match = pattern.fullmatch(header)
-        if not match:
-            continue
-        if len(match.groups()) == 1:
-            return match.group(1), "客观"
-        return f"{match.group(1)}-{match.group(2)}", "主观"
+    text = str(header).strip()
+    if not text:
+        return None
+    if re.fullmatch(r"\d+", text):
+        return text, "客观"
+    m = _QUESTION_HEADER_PATTERNS[1].fullmatch(text)  # 单个小题 26(1) / 26（1）
+    if m:
+        return f"{m.group(1)}-{m.group(2)}", "主观"
+    m = _QUESTION_HEADER_PATTERNS[2].fullmatch(text)  # 短横线 26-1
+    if m:
+        return f"{m.group(1)}-{m.group(2)}", "主观"
+    if _GROUPED_SUB_RE.fullmatch(text):
+        return text.translate(_FULL_TO_HALF_PAREN), "主观"
     return None
 
 
@@ -50,7 +63,8 @@ def classify_question_type(
     if not parsed:
         return None
     qid, _ = parsed
-    base = int(qid.split("-")[0])
+    lead = re.match(r"\d+", qid)
+    base = int(lead.group()) if lead else 0
     if plan is not None:
         qtype = plan.type_for(base)
         if qtype:

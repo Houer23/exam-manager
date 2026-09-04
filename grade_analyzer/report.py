@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import re
+
 from math import ceil
 
 import pandas as pd
@@ -192,13 +194,14 @@ def _subjective_pivot(
     if subj.empty:
         return pd.DataFrame(), pd.DataFrame(), [], []
     subj = subj.copy()
-    # 主观题号可能是纯数字（如配置客观题数后 21/22）或带小题（26-1），统一转字符串
+    # 主观题号可能是纯数字（如配置客观题数后 21/22）、带小题（26-1）
+    # 或分组题号（17(1)(2)、19(1)(2)(3)①），统一转字符串后取前导大题号
     subj["question_id"] = subj["question_id"].astype(str)
-    subj["大题号"] = subj["question_id"].str.split("-").str[0]
+    subj["大题号"] = subj["question_id"].str.extract(r"^(\d+)", expand=False)
 
-    def _qkey(qid: str) -> tuple[int, int]:
-        parts = qid.split("-")
-        return (int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+    def _qkey(qid: str) -> tuple[int, str]:
+        lead = re.match(r"\d+", str(qid))
+        return (int(lead.group()) if lead else 0, str(qid))
 
     wide = subj.pivot_table(
         index="student_id", columns="question_id", values="score", aggfunc="first"

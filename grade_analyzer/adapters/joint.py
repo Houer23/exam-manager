@@ -62,7 +62,8 @@ class JointAdapter(BaseAdapter):
             if not parsed:
                 return None
             qid, _ = parsed
-            base = int(qid.split("-")[0])
+            lead = re.match(r"\d+", qid)
+            base = int(lead.group()) if lead else 0
             if plan is not None:
                 top = plan.top_of(base)
                 return top if top in ("客观", "主观") else None

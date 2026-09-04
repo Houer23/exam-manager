@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import re
+
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, Side
@@ -91,7 +93,9 @@ def _build_strip_rows(
     big_s.index = big_s.index.astype(str)
     subj_by_base: dict[str, list[str]] = {}
     for c in subj_cols:
-        subj_by_base.setdefault(c.split("-")[0], []).append(c)
+        # 分组题号（17(1)(2) 等）没有短横线，统一取前导大题号归组
+        lead = re.match(r"\d+", c)
+        subj_by_base.setdefault(lead.group() if lead else c, []).append(c)
     sub = valid[valid["class_name"].isin(classes)].copy()
     sub = sub.sort_values(
         ["class_name", "total_score", "student_id"],
