@@ -195,29 +195,42 @@ def _subjective_pivot(
         return pd.DataFrame(), pd.DataFrame(), [], []
     subj = subj.copy()
     # 主观题号可能是纯数字（如配置客观题数后 21/22）、带小题（26-1）
-    # 或分组题号（17(1)(2)、19(1)(2)(3)①），统一转字符串后取前导大题号
+    # 或分组题号（17(1)(2)、19(1)(2)(3)①），统一转字符串后取前导大题号；
+    # 中文整列大题名（如 语法填空56-65）没有前导数字，以整列名作为自身大题
     subj["question_id"] = subj["question_id"].astype(str)
-    subj["大题号"] = subj["question_id"].str.extract(r"^(\d+)", expand=False)
+    subj["大题号"] = subj["question_id"].str.extract(
+        r"^(\d+)", expand=False
+    ).fillna(subj["question_id"])
 
-    def _qkey(qid: str) -> tuple[int, str]:
-        lead = re.match(r"\d+", str(qid))
-        return (int(lead.group()) if lead else 0, str(qid))
+    # 列顺序遵循 question_detail 行序的首次出现顺序：
+    # 数字题号按源表/数值顺序在前，中文整列大题按 question_types 书写顺序在后；
+    # 不再按 Unicode 字典序重排（避免 应用文 < 续写 < 语法填空56-65 的乱序）
+    subj_order = list(dict.fromkeys(subj["question_id"].astype(str)))
+    big_order = list(dict.fromkeys(subj["大题号"].astype(str)))
 
     wide = subj.pivot_table(
         index="student_id", columns="question_id", values="score", aggfunc="first"
     )
-    subj_cols = [str(c) for c in sorted(wide.columns, key=_qkey)]
+    wide_cols = {str(c) for c in wide.columns}
+    subj_cols = [c for c in subj_order if c in wide_cols]
+    subj_cols += [
+        str(c) for c in wide.columns if str(c) not in set(subj_cols)
+    ]
     wide = wide[subj_cols]
 
     big = subj.groupby(["student_id", "大题号"])["score"].sum().unstack(fill_value=0)
-    big_cols = [str(c) for c in sorted(big.columns, key=int)]
+    big_cols_set = {str(c) for c in big.columns}
+    big_cols = [c for c in big_order if c in big_cols_set]
+    big_cols += [
+        str(c) for c in big.columns if str(c) not in set(big_cols)
+    ]
     big = big[big_cols]
     return wide, big, subj_cols, big_cols
 
 
 def _display_qid(qid: str) -> str:
     """小题题号显示样式：26-1 -> 26(1)（参考文件样式，规范表仍用 26-1）。"""
-    if "-" in qid:
+    if "-" in qid and re.match(r"\d+", qid):
         base, sub = qid.split("-", 1)
         return f"{base}({sub})"
     return qid

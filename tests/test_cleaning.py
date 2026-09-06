@@ -230,6 +230,40 @@ def test_classify_objective_types_all_equal_no_multi():
     assert set(q["question_type"]) == {"客观"}  # 无多选，保持客观
 
 
+def test_classify_objective_types_switch_off_keeps_objective():
+    q = _question_df(
+        ["250907010001", "250907010002"],
+        {"1": [2.0, 2.0], "2": [2.0, 0.0], "21": [3.0, 3.0], "22": [0.0, 3.0]},
+    )
+    exam = ExamConfig(
+        name="测试",
+        format="joint",
+        subject="地理",
+        file="x.xlsx",
+        auto_single_multi=False,
+    )
+    q = classify_objective_types(q, exam)
+    assert set(q["question_type"]) == {"客观"}
+
+
+def test_classify_objective_types_switch_on_splits():
+    q = _question_df(
+        ["250907010001", "250907010002"],
+        {"1": [2.0, 2.0], "2": [2.0, 0.0], "21": [3.0, 3.0], "22": [0.0, 3.0]},
+    )
+    exam = ExamConfig(
+        name="测试",
+        format="joint",
+        subject="地理",
+        file="x.xlsx",
+        auto_single_multi=True,
+    )
+    q = classify_objective_types(q, exam)
+    types = q.set_index("question_id")["question_type"].to_dict()
+    assert types["1"] == "单选"
+    assert types["21"] == "多选"
+
+
 def test_classify_objective_types_only_subjective_unchanged():
     q = pd.DataFrame(
         {

@@ -39,7 +39,8 @@ def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None, default_school="
         "subject: 地理\n"
         "full_score: 100\n"
         "objective_full_score: 85\n"
-        "subjective_full_score: 15\n",
+        "subjective_full_score: 15\n"
+        "auto_single_multi: true\n",
         encoding="utf-8",
     )
     # 测试用班级/学科配置：不依赖工作区真实配置，新克隆环境也可运行

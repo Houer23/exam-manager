@@ -33,6 +33,9 @@ question_types:
 # 二分配置：true（默认）且顶层题型 <=2 时按 objective_question_count 分客观/主观，
 # 配置题型作为子题型；false 时完全按配置题型划分
 binary_split: true
+# 客观题未显式声明 单选/多选 时是否按每题实际最高得分自动区分；
+# 默认 false：不自动区分，客观题统一显示为 客观（显式声明 单选/多选 优先级最高）
+auto_single_multi: false
 default_grade: ""            # 留空 = 使用全局默认年级（高一）
 sheet: ""                    # 留空 = 自动选择 sheet
 filter_by_selection: true    # 名单核对是否按七选三过滤：true=按选课过滤；false=按全部班级核对

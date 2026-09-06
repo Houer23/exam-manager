@@ -200,9 +200,11 @@ def classify_objective_types(
 ) -> pd.DataFrame:
     """区分客观题中的单选题/多选题。
 
-    题型配置含 单选/多选 时以配置为准（不做自动区分）；
-    否则按各题实际最高得分区分（最高得分较小的为单选题，较大的为多选题）；
-    若所有客观题最高得分相同，则该场无多选题（全部为单选题）。
+    - 题型配置显式含 单选/多选 时以配置为准（不做自动区分）；
+    - 考试开关 auto_single_multi=false（默认）时不做自动区分，客观题保持 客观；
+    - 开关为 true 时才按各题实际最高得分区分
+      （最高得分较小的为单选题，较大的为多选题）；
+    - 若所有客观题最高得分相同，则该场无多选题（保持 客观）。
     """
     if exam is not None and exam.question_types:
         from .question_types import resolve_question_types
@@ -212,6 +214,8 @@ def classify_objective_types(
         )
         if plan is not None and ("单选" in plan.ranges or "多选" in plan.ranges):
             return questions
+    if exam is not None and not exam.auto_single_multi:
+        return questions
     obj = questions[questions["question_type"] == "客观"]
     if obj.empty:
         return questions

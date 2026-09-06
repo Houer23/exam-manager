@@ -42,6 +42,40 @@ def test_subjective_pivot_numeric_ids():
     assert big.loc["S2", "22"] == 5.0
 
 
+def test_subjective_pivot_keeps_chinese_column_config_order():
+    """中文整列大题按 question_detail 行序（即 question_types 书写顺序）展示。"""
+    questions = pd.DataFrame(
+        {
+            "student_id": ["S1"] * 3,
+            "question_id": [
+                "语法填空56-65", "应用文", "续写",
+            ],
+            "question_type": ["主观"] * 3,
+            "score": [7.5, 6.0, 4.5],
+        }
+    )
+    wide, big, subj_cols, big_cols = _subjective_pivot(questions)
+    assert subj_cols == ["语法填空56-65", "应用文", "续写"]
+    assert big_cols == ["语法填空56-65", "应用文", "续写"]
+
+
+def test_subjective_pivot_numeric_before_chinese_columns():
+    """数字主观题号在前，中文整列大题按配置顺序排在其后。"""
+    questions = pd.DataFrame(
+        {
+            "student_id": ["S1"] * 5,
+            "question_id": [
+                "15", "16", "语法填空56-65", "应用文", "续写",
+            ],
+            "question_type": ["主观"] * 5,
+            "score": [3.0, 4.0, 7.5, 6.0, 4.5],
+        }
+    )
+    wide, big, subj_cols, big_cols = _subjective_pivot(questions)
+    assert subj_cols == ["15", "16", "语法填空56-65", "应用文", "续写"]
+    assert big_cols == ["15", "16", "语法填空56-65", "应用文", "续写"]
+
+
 def test_build_class_summaries(tmp_path):
     config = AnalysisConfig(
         parsed_dir=str(tmp_path / "parsed"),

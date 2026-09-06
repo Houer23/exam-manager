@@ -31,7 +31,7 @@ _EXAM_KEYS = {
     "subjective_full_score", "objective_question_count", "default_grade",
     "sheet", "filter_by_selection",
     "short_name", "question_display", "show_big_questions",
-    "question_types", "binary_split",
+    "question_types", "binary_split", "auto_single_multi",
 }
 _SUBJECT_DEFAULT_KEYS = {"full_score", "objective_full_score", "subjective_full_score"}
 _CLASS_CONFIG_KEYS = {"level", "course"}
@@ -76,9 +76,11 @@ class ExamConfig:
     short_name: str | None = None  # 考试简称（留空 = 使用考试全称）
     question_display: str = "split"  # 个人成绩单小题呈现：split=分列 / merged=合并
     show_big_questions: bool = False  # 是否显示主观大题汇总分列
-    # 题型配置：题型名 -> 题号列表（None=默认 客观题/主观题 + 单选/多选自动区分）
-    question_types: dict[str, list[int]] | None = None
+    # 题型配置：题型名 -> 数字题号列表 + 得分列列名（None=默认判定）
+    question_types: dict[str, list[int | str]] | None = None
     binary_split: bool = True  # 二分配置：顶层题型 <=2 时按客观题数分客观/主观
+    # 客观题未显式声明 单选/多选 时是否按最高得分自动区分；默认关（保持 客观）
+    auto_single_multi: bool = False
     config_path: str | None = None  # 考试条目 yaml 路径（内部用于缓存有效性判断）
 
     def effective_importance(self) -> str:
@@ -339,6 +341,13 @@ def _load_exam_file(
         binary_split = raw_bs.strip().lower() not in ("", "false", "0", "no", "否")
     else:
         binary_split = bool(raw_bs)
+    raw_asm = raw.get("auto_single_multi", False)
+    if isinstance(raw_asm, str):
+        auto_single_multi = raw_asm.strip().lower() not in (
+            "", "false", "0", "no", "否",
+        )
+    else:
+        auto_single_multi = bool(raw_asm)
 
     # name 非必填：留空由文件名提取；规范名 = 学期简写 + 科目 + 考试名
     name = normalize_exam_name(name, semester, subject, subject_aliases)
@@ -365,6 +374,7 @@ def _load_exam_file(
         show_big_questions=show_big_questions,
         question_types=question_types,
         binary_split=binary_split,
+        auto_single_multi=auto_single_multi,
         config_path=str(path),
     )
 
