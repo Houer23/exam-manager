@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import difflib
 import re
 
 import pandas as pd
@@ -95,12 +96,21 @@ class JointAdapter(BaseAdapter):
             raise ValueError(f"{exam.full_path}: 未找到有效的 12 位考号数据行")
         id_series = data.iloc[:, id_col].map(lambda v: str(v).strip())
 
+        reserved_headers = {"姓名", "考号", "学校", "班级"}
+        # question_types 中无法按题号形式解析的项作为得分列列名；
+        # 列名列优先于题号列扫描（如 @56-65 强制把 "56-65" 当整列名）
+        token_names: list[str] = plan.column_names() if plan is not None else []
+        token_by_header: dict[str, list[int]] = {t: [] for t in token_names}
+
         # 候选题列：整数题号（答案区/客观得分区）与 主观小题题号
-        # （全角/半角括号、短横线三种形式，统一归一化）
+        # （全角/半角括号、短横线三种形式，统一归一化）；列名列单独收集
         q_cols: list[tuple[int, str]] = []
         for j, v in enumerate(header.tolist()):
             h = str(v).strip()
-            if h in {"姓名", "考号", "学校", "班级"}:
+            if h in reserved_headers:
+                continue
+            if h in token_by_header:
+                token_by_header[h].append(j)
                 continue
             # 数值表头 1.0 -> 1（客观题得分区）
             h_norm = re.sub(r"\.0$", "", h) if re.fullmatch(r"\d+\.0", h) else h
@@ -109,6 +119,25 @@ class JointAdapter(BaseAdapter):
 
         def is_numeric_col(j: int) -> bool:
             return pd.to_numeric(data.iloc[:, j], errors="coerce").notna().any()
+
+        # 配置列名找不到时显式报错并给出相近表头
+        missing = [t for t in token_names if not token_by_header[t]]
+        if missing:
+            available = [
+                str(v).strip()
+                for v in header.tolist()
+                if str(v).strip() and str(v).strip() not in reserved_headers
+            ]
+            hints = {
+                t: difflib.get_close_matches(t, available, n=3, cutoff=0.6)
+                for t in missing
+            }
+            detail = "；".join(
+                f"{t}（相近列: {', '.join(hints[t]) or '无'}）" for t in missing
+            )
+            raise ValueError(
+                f"{exam.full_path}: question_types 指定的得分列在表头中不存在: {detail}"
+            )
 
         # 答案列（字母）不是数值列，自动丢弃
         score_cols = [(j, h) for j, h in q_cols if is_numeric_col(j)]
@@ -122,20 +151,49 @@ class JointAdapter(BaseAdapter):
             for j, h in score_cols
             if obj_subj_type(h) == "主观"
         ]
-        if not score_cols:
+        # 列名列按所在题型归属客观/主观，并作为整列大题参与求和
+        obj_token_cols: list[tuple[int, str]] = []
+        subj_token_cols: list[tuple[int, str]] = []
+        if plan is not None:
+            for token in token_names:
+                top = plan.top_of_column(token)
+                if top not in ("客观", "主观"):
+                    raise ValueError(
+                        f"{exam.full_path}: 得分列列名 {token!r} 所属题型 "
+                        f"顶层为 {top!r}，仅支持客观/主观"
+                    )
+                target = obj_token_cols if top == "客观" else subj_token_cols
+                for j in token_by_header[token]:
+                    if not is_numeric_col(j):
+                        raise ValueError(
+                            f"{exam.full_path}: question_types 指定的得分列 "
+                            f"{token!r} 不是数值列，无法解析得分"
+                        )
+                    target.append((j, token))
+
+        if not score_cols and not obj_token_cols and not subj_token_cols:
             raise ValueError(f"{exam.full_path}: 未找到得分列")
 
         def to_num(series: pd.Series) -> pd.Series:
             return pd.to_numeric(series, errors="coerce")
 
+        def sum_cols(cols: list[tuple[int, str]]) -> pd.Series:
+            if not cols:
+                return pd.Series(float("nan"), index=data.index)
+            return sum(to_num(data.iloc[:, j]) for j, _ in cols)
+
         objective = (
-            sum(to_num(data.iloc[:, j]) for j, _ in obj_cols)
-            if obj_cols
+            sum_cols(obj_cols).add(
+                sum_cols(obj_token_cols), fill_value=0
+            )
+            if obj_cols or obj_token_cols
             else pd.Series(float("nan"), index=data.index)
         )
         subjective = (
-            sum(to_num(data.iloc[:, j]) for j, _ in subj_cols)
-            if subj_cols
+            sum_cols(subj_cols).add(
+                sum_cols(subj_token_cols), fill_value=0
+            )
+            if subj_cols or subj_token_cols
             else pd.Series(float("nan"), index=data.index)
         )
         total = objective + subjective
@@ -179,6 +237,26 @@ class JointAdapter(BaseAdapter):
             (score_df["subjective_score"] / sfs).round(5) if sfs else float("nan")
         )
 
+        # 显式提示被忽略的数值列（疑似得分列但未被任何方式解析）
+        used_cols = (
+            {j for j, _ in obj_cols}
+            | {j for j, _ in subj_cols}
+            | {j for j, _ in obj_token_cols}
+            | {j for j, _ in subj_token_cols}
+        )
+        ignored_meta = {"总分", "客观分", "主观分", "得分", "得分率", "总得分"}
+        warnings: list[str] = []
+        for j, v in enumerate(header.tolist()):
+            h = str(v).strip()
+            if h in reserved_headers or h in ignored_meta or j in used_cols:
+                continue
+            if is_numeric_col(j):
+                warnings.append(
+                    f"数值列 {h!r} 未被识别为题目得分列（未纳入解析）"
+                )
+        if warnings:
+            score_df.attrs["warnings"] = warnings
+
         frames: list[pd.DataFrame] = []
         for j, h in obj_cols:
             qid, qtype = classify_question_type(
@@ -207,6 +285,19 @@ class JointAdapter(BaseAdapter):
                         "student_id": id_series,
                         "question_id": qid,
                         "question_type": qtype,
+                        "score": to_num(data.iloc[:, j]),
+                        "full_score": None,
+                    }
+                )
+            )
+        for j, token in obj_token_cols + subj_token_cols:
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "exam_name": exam.name,
+                        "student_id": id_series,
+                        "question_id": token,
+                        "question_type": plan.type_for_column(token),
                         "score": to_num(data.iloc[:, j]),
                         "full_score": None,
                     }

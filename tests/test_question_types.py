@@ -87,6 +87,67 @@ def test_parse_question_list_trailing_comma():
     assert parse_question_types({"作文题": "26,"}) == {"作文题": [26]}
 
 
+def test_parse_column_name_tokens():
+    r = parse_question_types(
+        {"客观题": 55, "主观题": "语法填空56-65,应用文，续写"}
+    )
+    assert r["客观"] == list(range(1, 56))
+    assert r["主观"] == ["语法填空56-65", "应用文", "续写"]
+
+
+def test_parse_forced_column_marker():
+    # 纯 "56-65" 会按范围解析；加 @ 前缀后强制作为得分列列名
+    assert parse_question_types({"主观题": "56-65"}) == {
+        "主观": list(range(56, 66))
+    }
+    assert parse_question_types({"主观题": "@56-65"}) == {
+        "主观": ["56-65"]
+    }
+
+
+def test_full_width_comma_normalized_before_split():
+    r = parse_question_types(
+        {"主观题": "应用文，续写,语法填空56-65"}
+    )
+    assert r["主观"] == ["应用文", "续写", "语法填空56-65"]
+
+
+def test_plan_keeps_column_top_level():
+    plan = resolve_question_types(
+        parse_question_types(
+            {"客观题": 55, "主观题": "语法填空56-65,应用文，续写"}
+        ),
+        binary_split=False,
+        objective_count=None,
+    )
+    assert plan is not None
+    assert plan.columns == {
+        "主观": ["语法填空56-65", "应用文", "续写"]
+    }
+    for token in plan.column_names():
+        assert plan.top_of_column(token) == "主观"
+
+
+def test_column_token_in_parent_and_subtype():
+    plan = resolve_question_types(
+        parse_question_types(
+            {
+                "客观题": 11,
+                "主观题": "填空题12-14,15-19",
+                "单选": "1-8",
+                "多选": "9-11",
+                "填空": "填空题12-14",
+            }
+        ),
+        binary_split=True,
+        objective_count=11,
+    )
+    assert plan is not None
+    assert plan.parent["填空"] == "主观"
+    assert plan.type_for_column("填空题12-14") == "填空"
+    assert plan.top_of_column("填空题12-14") == "主观"
+
+
 def test_binary_mode_subtypes():
     plan = resolve_question_types(
         parse_question_types(

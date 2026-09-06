@@ -182,6 +182,9 @@ def parse_exams(
         except (ValueError, FileNotFoundError) as exc:
             print(f"[失败] {exam.name}: {exc}")
             continue
+        adapter_warnings = getattr(score, "attrs", {}).get("warnings", [])
+        for warning in adapter_warnings:
+            print(f"[提示] {exam.name}: {warning}")
         # 配置模式（binary_split=false 或 >2 顶层题型）下未覆盖题号校验
         from .question_types import resolve_question_types
 
