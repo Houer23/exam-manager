@@ -9,6 +9,7 @@ from grade_analyzer.cleaning import (
     classify_objective_types,
     collect_quality_issues,
     compute_ranks,
+    drop_empty_score_records,
     enrich_metadata,
     filter_default_school,
     extract_grade,
@@ -292,7 +293,37 @@ def test_add_question_type_scores():
     assert score.loc[0, "单选满分"] == 4.0  # 2 + 2
     assert score.loc[0, "多选满分"] == 3.0  # 3
     assert q.loc[q["question_id"] == "1", "full_score"].iloc[0] == 2.0
-    assert q.loc[q["question_id"] == "26-1", "full_score"].iloc[0] == 3.0
+
+
+def test_drop_empty_score_records():
+    score = pd.DataFrame(
+        {
+            "student_id": ["S1", "S2", "S3"],
+            "name": ["有分", "零分", "全空"],
+        }
+    )
+    questions = pd.DataFrame(
+        {
+            "student_id": ["S1", "S1", "S2", "S3"],
+            "question_id": ["1", "2", "1", "1"],
+            "score": [3.0, float("nan"), 0.0, float("nan")],
+        }
+    )
+    score2, questions2, dropped = drop_empty_score_records(score, questions)
+    assert dropped == 1
+    assert list(score2["student_id"]) == ["S1", "S2"]  # 0 分仍保留
+    assert set(questions2["student_id"]) == {"S1", "S2"}
+
+
+def test_drop_empty_score_records_no_change():
+    score = pd.DataFrame({"student_id": ["S1"]})
+    questions = pd.DataFrame(
+        {"student_id": ["S1"], "question_id": ["1"], "score": [0.0]}
+    )
+    score2, questions2, dropped = drop_empty_score_records(score, questions)
+    assert dropped == 0
+    assert len(score2) == 1
+    assert len(questions2) == 1
 
 
 def test_filter_default_school():

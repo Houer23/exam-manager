@@ -70,16 +70,19 @@ python -m grade_analyzer.cli check [--config 路径] [--force] [--exam 名称或
 ### 3.2 `parse` — 解析规范表
 
 ```bash
-python -m grade_analyzer.cli parse [--config 路径] [--reparse]
+python -m grade_analyzer.cli parse [--config 路径] [--semester 学期] [--exam 名称或序号] [--reparse]
 ```
 
 | 参数 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `--config` | 路径 | `config/config.yaml` | 配置文件路径 |
-| `--reparse` | 开关 | 关 | 忽略缓存，强制重新解析全部考试 |
+| `--semester` | 文本 | 当前学期 | 限定学期（序号解析的场次范围） |
+| `--exam` | 文本 | 当前学期全部 | 考试名称或序号列表（规则同 run/results，如 `1,3`） |
+| `--reparse` | 开关 | 关 | 忽略缓存，强制重新解析选中考试 |
 
 - 规范表落盘 `data/parsed/<学期>/<考试名>/{score_summary,question_detail}.csv`；
 - 缓存复用条件：规范表存在、原始文件 mtime 未变、考试条目配置签名（`.config_sig`）与班级/学科配置签名（`.meta_sig`）未变；
+- 未传 `--exam` 时默认解析当前学期（`current_semester`）内的全部考试，与 run/results 一致；
 - 考试已删除（缓存目录有 `.deleted` 标记）的场次跳过。
 
 ### 3.3 `merge` — 跨场合并
@@ -111,7 +114,7 @@ python -m grade_analyzer.cli run [--config 路径] [--semester 学期] [--types 
 | `--semester` | 文本 | 当前学期 | 限定学期 |
 | `--types` | 文本 | 无 | 考试类型筛选，逗号分隔 |
 | `--baseline-exams` | 文本 | 无 | 额外加入的历史场次名称（比较基准） |
-| `--exam` | 文本 | 按 `current_exam`/全部 | 考试名称或序号列表；不传时打印带序号的考试列表 |
+| `--exam` | 文本 | 当前学期（`current_exam`/全部） | 考试名称或序号列表；不传时打印带序号的考试列表并运行当前学期 |
 | `--reparse` | 开关 | 关 | 忽略缓存强制重新解析 |
 | `--verify-roster` | 开关 | 关 | 生成班级汇总时核对学生名单 |
 
@@ -243,7 +246,7 @@ python -m grade_analyzer.cli roster check [--config 路径] [--semester 学期] 
 ### 3.8 `results` — 生成成绩单
 
 ```bash
-python -m grade_analyzer.cli results [--config 路径] [--semester 学期] [--exam 名称或序号] [--no-merge-strips] [--summary-only | --strips-only]
+python -m grade_analyzer.cli results [--config 路径] [--semester 学期] [--exam 名称或序号] [--no-merge-strips] [--summary-only | --strips-only | --all]
 ```
 
 | 参数 | 类型 | 默认 | 说明 |
@@ -254,8 +257,9 @@ python -m grade_analyzer.cli results [--config 路径] [--semester 学期] [--ex
 | `--no-merge-strips` | 开关 | 关 | 多场考试时个人成绩单不合并，每场单独生成（缺省=合并） |
 | `--summary-only` | 开关 | 关 | 只生成班级成绩汇总，不生成个人成绩单 |
 | `--strips-only` | 开关 | 关 | 只生成个人成绩单，不生成班级成绩汇总（与 `--summary-only` 互斥） |
+| `--all` | 开关 | 关 | 强制同时生成班级汇总与个人成绩单（覆盖配置 `enabled` 开关） |
 
-只读规范表，运行前必须先 `parse`。
+未传 `--summary-only`/`--strips-only`/`--all` 时，按 results 配置的 `personal.enabled`、`class_summary.enabled` 决定是否生成；传了上述参数时以 CLI 参数为准。只读规范表，运行前必须先 `parse`。
 
 ### 3.9 `charts` — 生成统计图
 

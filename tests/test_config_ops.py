@@ -202,6 +202,41 @@ def test_list_exams_defaults_to_current_semester(tmp_path):
     assert list(df["学期"]) == ["高二第一学期"]
 
 
+def test_exam_charts_override_loaded(tmp_path):
+    exams_dir = tmp_path / "exams"
+    _write_exam(
+        exams_dir,
+        "高一第二学期",
+        "周测",
+        name="高一下地理周测",
+        charts={
+            "output_dir": "../考试图片",
+            "folder_semester": True,
+            "folder_exam": True,
+            "folder_type": True,
+            "type_folder_name": "统计图表",
+        },
+    )
+    _write_exam(
+        exams_dir,
+        "高二第一学期",
+        "周测",
+        name="高二上地理周测",
+        charts={"output_dir": ""},
+    )
+    cfg_path = str(_write_global(tmp_path, exams_dir))
+    exams = load_config(cfg_path).exams
+    by_name = {e.name: e for e in exams}
+    override = by_name["高一下地理周测"].charts
+    assert override is not None
+    assert override.output_dir == "../考试图片"
+    assert override.folder_exam is True
+    assert override.type_folder_name == "统计图表"
+    # 考试配置写了空字符串时保留空值语义（解析阶段回退默认）
+    assert by_name["高二上地理周测"].charts.output_dir == ""
+    assert by_name["高二上地理周测"].charts.folder_semester is None
+
+
 def test_get_config_value(tmp_path, capsys):
     exams_dir = tmp_path / "exams"
     exams_dir.mkdir()

@@ -16,6 +16,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 
+from .cleaning import resolve_class_spec
 from .config import AnalysisConfig, ExamConfig
 from .consolidate import date_range_suffix
 from .report import _display_qid, _subjective_pivot
@@ -37,6 +38,19 @@ def _type_score_cols(valid: pd.DataFrame) -> list[str]:
         and not c.endswith("满分")
         and c not in ("客观分", "主观分")
     ]
+
+
+def _display_exam_name(exam: ExamConfig) -> str:
+    """个人成绩单“考试”列展示名。
+
+    取考试简称（缺省为全称）；若展示名不包含学科，则在前面补上学科，
+    如 subject=地理、short_name=联考 -> 地理联考。
+    """
+    display = exam.effective_short_name
+    subject = (exam.subject or "").strip()
+    if subject and subject not in display:
+        return f"{subject}{display}"
+    return display
 
 
 def _teacher_sets(config: AnalysisConfig, exam: ExamConfig) -> dict[str, set[str]]:
@@ -62,6 +76,37 @@ def _label_for(
         if classes == tset:
             return teacher
     return "自定义"
+
+
+_NORMALIZED_CLASS_RE = re.compile(r"^高[一二三]\d{2}班$")
+
+
+def _expand_custom_classes(
+    exam: ExamConfig,
+    config: AnalysisConfig,
+    entries: list[str],
+) -> set[str]:
+    """展开 personal.scope.classes 到规范班级名集合。
+
+    每项支持：规范全称（高二10班）或 CLI --class 同款数字写法
+    （10、10,12、10-12、14-12 等）；数字写法按本场考试的年级展开。
+    """
+    grade = exam.default_grade or config.default_grade
+    result: list[str] = []
+    for entry in entries:
+        text = str(entry).strip()
+        if not text:
+            continue
+        if _NORMALIZED_CLASS_RE.fullmatch(text):
+            result.append(text)
+            continue
+        try:
+            result.extend(resolve_class_spec(text, grade))
+        except ValueError as exc:
+            raise ValueError(
+                f"personal.scope.classes 项 {text!r} 无法解析：{exc}"
+            )
+    return set(result)
 
 
 def _resolve_teacher(entry: str, teacher_names: dict[str, str]) -> str:
@@ -138,7 +183,7 @@ def _build_strip_rows(
         data = [
             srow["class_name"],
             srow["name"] if not pd.isna(srow["name"]) else "",
-            exam.effective_short_name,
+            _display_exam_name(exam),
             srow["班次"],
             srow["校次"],
             srow["total_score"],
@@ -425,7 +470,7 @@ def build_personal_strips(
             if classes:
                 tasks.append((name, classes))
     elif scope.mode == "custom":
-        classes = set(scope.classes) & all_classes
+        classes = _expand_custom_classes(exam, config, scope.classes) & all_classes
         if classes:
             tasks.append((_label_for(classes, all_classes, teacher_sets), classes))
     else:
@@ -473,7 +518,9 @@ def build_merged_personal_strips(
             if classes:
                 tasks.append((name, classes))
     elif scope.mode == "custom":
-        classes = set(scope.classes) & all_classes
+        classes = (
+            _expand_custom_classes(exams[0], config, scope.classes) & all_classes
+        )
         if classes:
             tasks.append((_label_for(classes, all_classes, teacher_sets), classes))
     else:
@@ -620,7 +667,7 @@ def _build_merged_rows(
             row_data = [
                 cls,
                 name,
-                exam.effective_short_name,
+                _display_exam_name(exam),
                 srow["班次"],
                 srow["校次"],
                 srow["total_score"],

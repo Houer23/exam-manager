@@ -1,5 +1,12 @@
 # 统计图（组合图）配置 —— 默认值全部显式列出，可按需修改
 
+# 输出位置（目录层级 外→内：学期 -> 考试名 -> “统计图”文件夹）
+output_dir: ""              # 输出文件夹；留空 = 全局 output_dir 下的 charts（默认）
+folder_semester: true       # 是否新建学期子文件夹
+folder_exam: false          # 是否新建考试名子文件夹
+folder_type: false          # 是否新建“统计图”子文件夹
+type_folder_name: 统计图     # “统计图”文件夹名称（folder_type=true 时生效，可自定义）
+
 # 输出与启用
 enabled: true              # run 时是否生成统计图
 format: png                # png / svg / pdf

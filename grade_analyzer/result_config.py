@@ -14,7 +14,7 @@ import yaml
 _TOP_KEYS = {"personal", "class_summary"}
 _SCOPE_KEYS = {"mode", "teachers", "classes"}
 _PERSONAL_KEYS = {
-    "scope", "sort_by_score_desc", "single_sheet",
+    "enabled", "scope", "sort_by_score_desc", "single_sheet",
     "big_score_prefix", "big_score_suffix", "merged_prefix", "merged_suffix",
     "bold_total_score", "layout", "header_footer", "print",
 }
@@ -35,7 +35,7 @@ _HF_FONTS_KEYS = {"header_left", "header_center", "header_right", "footer_left"}
 _PRINT_KEYS = {"orientation", "paper_size", "margin", "fit_to_width", "rows_per_page"}
 _MARGIN_KEYS = {"top", "bottom", "left", "right"}
 _CS_KEYS = {
-    "group_by_teacher", "per_class_sheet", "all_classes_summary",
+    "enabled", "group_by_teacher", "per_class_sheet", "all_classes_summary",
     "header", "footer", "fonts", "row_height", "column_widths",
     "alignment", "borders", "data_bar", "average_rows",
 }
@@ -148,6 +148,7 @@ class PrintConfig:
 class PersonalConfig:
     """个人成绩单配置。"""
 
+    enabled: bool = True  # 是否生成个人成绩单（CLI 参数可覆盖）
     scope: ScopeConfig = field(default_factory=ScopeConfig)
     sort_by_score_desc: bool = True
     single_sheet: bool = True
@@ -248,6 +249,7 @@ class CSAverageRowsConfig:
 class ClassSummaryConfig:
     """班级成绩汇总配置。"""
 
+    enabled: bool = True  # 是否生成班级成绩汇总（CLI 参数可覆盖）
     group_by_teacher: bool = True
     per_class_sheet: bool = True
     all_classes_summary: bool = True
@@ -334,12 +336,17 @@ def load_results_config(results_dir: str = "config/results") -> ResultsConfig:
     # ---- 个人成绩单 ----
     p_raw = _sub(raw, "personal", _PERSONAL_KEYS, "personal", path)
     p = cfg.personal
+    p.enabled = _as_bool(
+        p_raw.get("enabled", p.enabled), "personal.enabled", path
+    )
     scope_raw = _sub(p_raw, "scope", _SCOPE_KEYS, "personal.scope", path)
     p.scope.mode = str(scope_raw.get("mode", p.scope.mode))
     if p.scope.mode not in {"teacher", "all", "custom"}:
         raise ValueError(f"{path}: personal.scope.mode 应为 teacher/all/custom")
     teachers = scope_raw.get("teachers", p.scope.teachers)
     classes = scope_raw.get("classes", p.scope.classes)
+    if isinstance(classes, str):
+        classes = [classes]
     if not isinstance(teachers, list) or not isinstance(classes, list):
         raise ValueError(f"{path}: personal.scope.teachers/classes 应为列表")
     p.scope.teachers = [str(t) for t in teachers]
@@ -477,6 +484,9 @@ def load_results_config(results_dir: str = "config/results") -> ResultsConfig:
     # ---- 班级成绩汇总 ----
     cs_raw = _sub(raw, "class_summary", _CS_KEYS, "class_summary", path)
     cs = cfg.class_summary
+    cs.enabled = _as_bool(
+        cs_raw.get("enabled", cs.enabled), "class_summary.enabled", path
+    )
     cs.group_by_teacher = _as_bool(
         cs_raw.get("group_by_teacher", cs.group_by_teacher),
         "class_summary.group_by_teacher", path,

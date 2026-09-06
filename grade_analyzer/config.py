@@ -31,10 +31,29 @@ _EXAM_KEYS = {
     "subjective_full_score", "objective_question_count", "default_grade",
     "sheet", "filter_by_selection",
     "short_name", "question_display", "show_big_questions",
-    "question_types", "binary_split", "auto_single_multi",
+    "question_types", "binary_split", "auto_single_multi", "charts",
+}
+_CHART_OUTPUT_KEYS = {
+    "output_dir", "folder_semester", "folder_exam", "folder_type",
+    "type_folder_name",
 }
 _SUBJECT_DEFAULT_KEYS = {"full_score", "objective_full_score", "subjective_full_score"}
 _CLASS_CONFIG_KEYS = {"level", "course"}
+
+
+@dataclass
+class ChartOutputOverride:
+    """考试条目级统计图输出配置覆盖。
+
+    字段为 None 表示“未设置，按全局 charts 配置”；
+    output_dir / type_folder_name 为空字符串表示“回退到默认值”。
+    """
+
+    output_dir: str | None = None
+    folder_semester: bool | None = None
+    folder_exam: bool | None = None
+    folder_type: bool | None = None
+    type_folder_name: str | None = None
 
 
 @dataclass
@@ -81,6 +100,7 @@ class ExamConfig:
     binary_split: bool = True  # 二分配置：顶层题型 <=2 时按客观题数分客观/主观
     # 客观题未显式声明 单选/多选 时是否按最高得分自动区分；默认关（保持 客观）
     auto_single_multi: bool = False
+    charts: ChartOutputOverride | None = None  # 覆盖全局统计图输出配置
     config_path: str | None = None  # 考试条目 yaml 路径（内部用于缓存有效性判断）
 
     def effective_importance(self) -> str:
@@ -348,6 +368,52 @@ def _load_exam_file(
         )
     else:
         auto_single_multi = bool(raw_asm)
+    charts = None
+    raw_charts = raw.get("charts")
+    if raw_charts is not None:
+        if not isinstance(raw_charts, dict):
+            raise ValueError(f"{path}: charts 应为映射")
+        unknown = set(raw_charts) - _CHART_OUTPUT_KEYS
+        if unknown:
+            raise ValueError(
+                f"{path}: charts 下未知配置键 {sorted(unknown)}"
+            )
+
+        def _override_bool(key: str) -> bool | None:
+            value = raw_charts.get(key)
+            if value is None:
+                return None
+            if isinstance(value, str):
+                text = value.strip()
+                if text == "":
+                    return None
+                return text.lower() not in ("false", "0", "no", "否")
+            return bool(value)
+
+        def _override_text(key: str) -> str | None:
+            value = raw_charts.get(key)
+            if value is None:
+                return None
+            return "" if isinstance(value, str) and value.strip() == "" \
+                else str(value).strip()
+
+        charts = ChartOutputOverride(
+            output_dir=_override_text("output_dir"),
+            folder_semester=_override_bool("folder_semester"),
+            folder_exam=_override_bool("folder_exam"),
+            folder_type=_override_bool("folder_type"),
+            type_folder_name=_override_text("type_folder_name"),
+        )
+        if (
+            charts.type_folder_name is not None
+            and charts.type_folder_name
+            and any(
+                c in charts.type_folder_name for c in ("/", "\\")
+            )
+        ):
+            raise ValueError(
+                f"{path}: charts.type_folder_name 不能包含路径分隔符"
+            )
 
     # name 非必填：留空由文件名提取；规范名 = 学期简写 + 科目 + 考试名
     name = normalize_exam_name(name, semester, subject, subject_aliases)
@@ -375,6 +441,7 @@ def _load_exam_file(
         question_types=question_types,
         binary_split=binary_split,
         auto_single_multi=auto_single_multi,
+        charts=charts,
         config_path=str(path),
     )
 

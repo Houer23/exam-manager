@@ -36,6 +36,13 @@ binary_split: true
 # 客观题未显式声明 单选/多选 时是否按每题实际最高得分自动区分；
 # 默认 false：不自动区分，客观题统一显示为 客观（显式声明 单选/多选 优先级最高）
 auto_single_multi: false
+# charts: 覆盖本场统计图输出配置（可选；省略的字段按全局 charts 配置）
+# charts:
+#   output_dir: ""          # 非空=本场绘图根目录；空=回退默认目录
+#   folder_semester: true   # 是否新建学期子文件夹
+#   folder_exam: true       # 是否新建考试名子文件夹
+#   folder_type: true       # 是否新建“统计图”子文件夹
+#   type_folder_name: 统计图 # “统计图”文件夹名称（可自定义）
 default_grade: ""            # 留空 = 使用全局默认年级（高一）
 sheet: ""                    # 留空 = 自动选择 sheet
 filter_by_selection: true    # 名单核对是否按七选三过滤：true=按选课过滤；false=按全部班级核对

@@ -8,6 +8,7 @@ import yaml
 
 from grade_analyzer.config import load_config
 from grade_analyzer.pipeline import parse_exams
+from grade_analyzer.cli import main
 
 
 def _sample_joint_school() -> str:
@@ -62,9 +63,11 @@ def _setup(tmp_path, parsed_dir, out_dir=None, roster_dir=None, default_school="
     cfg = tmp_path / "config.yaml"
     data = {
         "subjects": ["语文", "数学", "外语", "物理", "化学", "生物", "政治", "历史", "地理", "技术"],
+        "current_semester": "高一第二学期",
         "exams_dir": str(exams_dir),
         "classes_dir": str(classes_dir),
         "subjects_dir": str(subjects_dir),
+        "charts_dir": str(tmp_path / "charts_cfg"),
         "parsed_dir": str(parsed_dir),
         "default_school": default_school,
         "output_dir": str(out_dir or tmp_path / "out"),
@@ -159,6 +162,51 @@ def test_parse_exams_writes_and_reuses(tmp_path, capsys):
 
     parse_exams(cfg_path, reparse=True)
     assert "[复用]" not in capsys.readouterr().out
+
+
+def test_parse_cli_exam_filter(tmp_path, capsys):
+    """CLI parse --exam 按名称只解析指定考试，其余场次不受影响。"""
+    parsed = tmp_path / "parsed"
+    cfg_path = _setup(tmp_path, parsed, tmp_path / "out")
+    # 增加一场原始文件不存在的联考：若解析范围未过滤，会打印 [失败]
+    (tmp_path / "exams" / "高一第二学期" / "联考.yaml").write_text(
+        "name: 联考\n"
+        "format: joint\n"
+        "folder: 不存在目录\n"
+        "file: 不存在.xlsx\n"
+        "subject: 地理\n",
+        encoding="utf-8",
+    )
+    main(["parse", "--config", cfg_path, "--exam", "高一下地理周测"])
+    out = capsys.readouterr().out
+    assert "[完成] 高一下地理周测" in out
+    assert "高一下地理联考" not in out
+    assert (
+        parsed / "高一第二学期" / "高一下地理周测" / "score_summary.csv"
+    ).is_file()
+    assert not (
+        parsed / "高一第二学期" / "高一下地理联考" / "score_summary.csv"
+    ).is_file()
+
+
+def test_parse_cli_defaults_to_current_semester(tmp_path, capsys):
+    """parse 未指定考试时只解析当前学期，不再解析全部学期。"""
+    parsed = tmp_path / "parsed"
+    cfg_path = _setup(tmp_path, parsed, tmp_path / "out")
+    other_dir = tmp_path / "exams" / "高二第一学期"
+    other_dir.mkdir()
+    (other_dir / "联考.yaml").write_text(
+        "name: 高二上地理联考\n"
+        "format: joint\n"
+        "folder: 不存在目录\n"
+        "file: 不存在.xlsx\n"
+        "subject: 地理\n",
+        encoding="utf-8",
+    )
+    main(["parse", "--config", cfg_path])
+    out = capsys.readouterr().out
+    assert "[完成] 高一下地理周测" in out
+    assert "高二上地理联考" not in out
 
 
 def test_parse_with_objective_question_count(tmp_path):
@@ -266,6 +314,46 @@ def test_run_results_current_exam_index_lists_exams(shared_parsed, tmp_path, cap
     assert "[个人成绩单]" in out_text
 
 
+def test_run_results_respects_enabled_and_cli_override(
+    shared_parsed, tmp_path, capsys
+):
+    """results 配置 enabled=false 时不生成；显式参数（--all 等价）强制生成。"""
+    from grade_analyzer.pipeline import run_results
+
+    parsed = shared_parsed
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    results_cfg_file = tmp_path / "results_cfg" / "config.yaml"
+    results_cfg_file.write_text(
+        "personal:\n"
+        "  enabled: false\n"
+        "  scope:\n"
+        "    mode: all\n"
+        "class_summary:\n"
+        "  enabled: false\n",
+        encoding="utf-8",
+    )
+
+    run_results(cfg_path)
+    out1 = capsys.readouterr().out
+    assert "配置已禁用" in out1
+    assert not (out / "results").exists()
+
+    run_results(
+        cfg_path, generate_summary=True, generate_strips=True
+    )
+    out2 = capsys.readouterr().out
+    assert "[班级汇总]" in out2
+    assert "[个人成绩单]" in out2
+    assert (
+        out / "results" / "高一第二学期" / "高一下地理周测"
+        / "高一下地理周测_全部班级_班级成绩汇总.xlsx"
+    ).is_file()
+    assert list(
+        (out / "results" / "高一第二学期").glob("*_个人成绩单.xlsx")
+    )
+
+
 def test_run_pipeline_exam_filter(shared_parsed, tmp_path, capsys):
     """run --exam 只处理指定考试；未指定时含无规范表考试会失败。"""
     from grade_analyzer.pipeline import run_pipeline
@@ -290,6 +378,33 @@ def test_run_pipeline_exam_filter(shared_parsed, tmp_path, capsys):
 
     with pytest.raises(ValueError, match="未找到指定考试"):
         run_pipeline(cfg_path, exam="不存在的考试")
+
+
+def test_run_pipeline_defaults_to_current_semester(
+    shared_parsed, tmp_path, capsys
+):
+    """未指定考试时 run 只解析/运行当前学期，不影响其他学期。"""
+    from grade_analyzer.pipeline import run_pipeline
+
+    parsed = shared_parsed
+    out = tmp_path / "out"
+    cfg_path = _setup(tmp_path, parsed, out)
+    other_dir = tmp_path / "exams" / "高二第一学期"
+    other_dir.mkdir()
+    (other_dir / "缺考联考.yaml").write_text(
+        "name: 高二上缺考联考\n"
+        "format: joint\n"
+        "folder: 不存在目录\n"
+        "file: 不存在.xlsx\n"
+        "subject: 地理\n",
+        encoding="utf-8",
+    )
+
+    run_pipeline(cfg_path)
+    out_text = capsys.readouterr().out
+    assert "[统计] 高一下地理周测" in out_text
+    assert "[报告]" in out_text
+    assert "高二上缺考联考" not in out_text
 
 
 def test_resolve_exam_selection_number_list():

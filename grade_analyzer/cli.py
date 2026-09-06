@@ -2,7 +2,7 @@
 
 用法：
     python -m grade_analyzer.cli check --config config/config.yaml
-    python -m grade_analyzer.cli parse [--reparse]
+    python -m grade_analyzer.cli parse [--semester ...] [--exam ...] [--reparse]
     python -m grade_analyzer.cli merge [--semester ...] [--types ...] [--baseline-exams ...]
     python -m grade_analyzer.cli run --config config/config.yaml
     python -m grade_analyzer.cli exam add|update|remove|list ...
@@ -49,6 +49,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_config_arg(parse_parser)
     parse_parser.add_argument(
         "--reparse", action="store_true", help="忽略缓存强制重新解析"
+    )
+    parse_parser.add_argument(
+        "--semester", default=None, help="限定学期（缺省=当前学期）"
+    )
+    parse_parser.add_argument(
+        "--exam",
+        default=None,
+        help="考试名称或序号列表（如 1,3；纯数字/逗号=按日期升序序号，否则按名称）；缺省=当前学期全部",
     )
 
     merge_parser = subparsers.add_parser(
@@ -254,6 +262,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="只生成个人成绩单，不生成班级成绩汇总",
     )
+    results_only_group.add_argument(
+        "--all",
+        action="store_true",
+        help="强制生成班级成绩汇总与个人成绩单（覆盖配置中的 enabled 开关）",
+    )
 
     charts_parser = subparsers.add_parser("charts", help="生成统计图（需先 parse）")
     add_config_arg(charts_parser)
@@ -337,9 +350,18 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if run_check(config, exams=selected, force=args.force) else 0
         return 1 if run_check(config, force=args.force) else 0
     elif args.command == "parse":
-        from .pipeline import parse_exams
+        from .config import load_config
+        from .pipeline import _resolve_exam_selection, parse_exams
 
-        parse_exams(args.config, reparse=args.reparse)
+        config = load_config(args.config)
+        selected, _, _ = _resolve_exam_selection(
+            config, args.exam, args.semester
+        )
+        parse_exams(
+            args.config,
+            reparse=args.reparse,
+            exam_names=[e.name for e in selected],
+        )
     elif args.command == "merge":
         from .consolidate import run_merge
 
@@ -446,13 +468,21 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "results":
         from .pipeline import run_results
 
+        if args.all:
+            generate_summary, generate_strips = True, True
+        elif args.summary_only:
+            generate_summary, generate_strips = True, False
+        elif args.strips_only:
+            generate_summary, generate_strips = False, True
+        else:
+            generate_summary, generate_strips = None, None
         run_results(
             args.config,
             semester=args.semester,
             exam_name=args.exam,
             merge_strips=not args.no_merge_strips,
-            generate_summary=not args.strips_only,
-            generate_strips=not args.summary_only,
+            generate_summary=generate_summary,
+            generate_strips=generate_strips,
         )
     elif args.command == "charts":
         from .pipeline import run_charts

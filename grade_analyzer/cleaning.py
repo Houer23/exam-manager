@@ -53,6 +53,47 @@ def normalize_class_name(
     return text, extract_grade(text)
 
 
+def resolve_class_spec(text: str, default_grade: str) -> list[str]:
+    """把数字班级写法解析为规范班级名列表（与 CLI --class 一致）。
+
+    支持逗号分隔、n-m 连续区间（含两端；n>m 时取反向），
+    如 "10,12-14" -> 高一10/12/13/14班；"14-12" -> 14,13,12班。
+    """
+    nums: list[int] = []
+    for part in str(text).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            try:
+                a_s, b_s = part.split("-", 1)
+                a, b = int(a_s), int(b_s)
+            except ValueError:
+                raise ValueError(
+                    f"班级区间应为 n-m（如 10-12），当前为 {part!r}"
+                )
+            if a <= b:
+                nums.extend(range(a, b + 1))
+            else:
+                nums.extend(range(a, b - 1, -1))
+        else:
+            try:
+                nums.append(int(part))
+            except ValueError:
+                raise ValueError(
+                    f"班级应为数字或区间（如 10,11 或 10-12），当前为 {part!r}"
+                )
+    if not nums:
+        raise ValueError("班级写法未提供有效班级数字")
+    seen: set[int] = set()
+    ordered: list[int] = []
+    for n in nums:
+        if n not in seen:
+            seen.add(n)
+            ordered.append(n)
+    return [f"{default_grade}{n:02d}班" for n in ordered]
+
+
 def validate_student_ids(df: pd.DataFrame) -> None:
     """校验考号：缺失、非 12 位数字、场次内重复 -> 报错终止。"""
     ids = df["student_id"].astype(str).str.strip()
@@ -86,6 +127,36 @@ def validate_total_score(df: pd.DataFrame, full_score: float) -> None:
         raise ValueError(
             f"总分越界（满分 {full_score:g}）：{len(bad)} 行，如 {ids[:5]}"
         )
+
+
+def drop_empty_score_records(
+    score: pd.DataFrame,
+    questions: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, int]:
+    """去掉所有得分列均为空的记录。
+
+    以小题明细为准：某学生没有任何一道题得分（含空白/非数值）时，
+    视为空记录，从总分表与小题明细中同步删除。
+    全部为 0 分的学生不算空记录（0 分也是有效得分）。
+    """
+    if questions.empty or "score" not in questions.columns:
+        return score, questions, 0
+    q = questions.copy()
+    q["_score"] = pd.to_numeric(q["score"], errors="coerce")
+    has_any = q.groupby("student_id")["_score"].transform(
+        lambda s: s.notna().any()
+    )
+    keep_ids = set(q.loc[has_any, "student_id"].astype(str).unique())
+    score_mask = score["student_id"].astype(str).isin(keep_ids)
+    dropped = int((~score_mask).sum())
+    if dropped == 0:
+        return score, questions, 0
+    questions_mask = questions["student_id"].astype(str).isin(keep_ids)
+    return (
+        score[score_mask].reset_index(drop=True),
+        questions[questions_mask].reset_index(drop=True),
+        dropped,
+    )
 
 
 def collect_quality_issues(

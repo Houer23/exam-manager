@@ -13,6 +13,8 @@ def _write(tmp_path, content):
 
 def test_defaults_when_missing(tmp_path):
     cfg = load_results_config(str(tmp_path))
+    assert cfg.personal.enabled is True
+    assert cfg.class_summary.enabled is True
     assert cfg.personal.scope.mode == "all"
     assert cfg.personal.sort_by_score_desc is True
     assert cfg.personal.big_score_prefix == ""
@@ -34,6 +36,7 @@ def test_load_override(tmp_path):
     _write(
         tmp_path,
         "personal:\n"
+        "  enabled: false\n"
         "  scope:\n"
         "    mode: teacher\n"
         "    teachers: [柯]\n"
@@ -53,11 +56,14 @@ def test_load_override(tmp_path):
         "    borders:\n"
         "      enabled: false\n"
         "class_summary:\n"
+        "  enabled: false\n"
         "  all_classes_summary: false\n"
         "  data_bar:\n"
         "    color: FF0000\n",
     )
     cfg = load_results_config(str(tmp_path))
+    assert cfg.personal.enabled is False
+    assert cfg.class_summary.enabled is False
     assert cfg.personal.scope.mode == "teacher"
     assert cfg.personal.scope.teachers == ["柯"]
     assert cfg.personal.sort_by_score_desc is False
@@ -78,6 +84,18 @@ def test_invalid_scope_mode(tmp_path):
     _write(tmp_path, "personal:\n  scope:\n    mode: unknown\n")
     with pytest.raises(ValueError, match="scope.mode"):
         load_results_config(str(tmp_path))
+
+
+def test_custom_classes_accepts_scalar_text(tmp_path):
+    _write(
+        tmp_path,
+        "personal:\n"
+        "  scope:\n"
+        "    mode: custom\n"
+        "    classes: 1,2,10-12\n",
+    )
+    cfg = load_results_config(str(tmp_path))
+    assert cfg.personal.scope.classes == ["1,2,10-12"]
 
 
 def test_invalid_alignment_center_cols(tmp_path):

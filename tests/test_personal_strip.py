@@ -3,7 +3,10 @@
 import pandas as pd
 
 from grade_analyzer.config import AnalysisConfig, ExamConfig, OutputConfig, TeacherMap
-from grade_analyzer.personal_strip import build_personal_strips
+from grade_analyzer.personal_strip import (
+    _display_exam_name,
+    build_personal_strips,
+)
 from grade_analyzer.result_config import ResultsConfig
 
 
@@ -16,6 +19,19 @@ def _exam() -> ExamConfig:
         date="2026-04-20",
         full_score=100.0,
     )
+
+
+def test_display_exam_name_prefixes_subject():
+    assert _display_exam_name(_exam()) == "地理联考"
+    exam2 = _exam2()
+    assert _display_exam_name(exam2) == "地理限时练一"
+    exam_no_subject = ExamConfig(
+        name="高一下期中联考",
+        short_name="联考",
+        semester="高一第二学期",
+        date="2026-04-20",
+    )
+    assert _display_exam_name(exam_no_subject) == "联考"
 
 
 def _score() -> pd.DataFrame:
@@ -99,6 +115,44 @@ def test_build_teacher_invalid_raises(tmp_path):
     cfg.personal.scope.mode = "teacher"
     cfg.personal.scope.teachers = ["Z"]
     with pytest.raises(ValueError, match="教师配置无效"):
+        build_personal_strips(
+            _exam(), _score(), _questions(), cfg, _config(tmp_path)
+        )
+
+
+def test_build_custom_scope_class_spec(tmp_path):
+    cfg = ResultsConfig()
+    cfg.personal.scope.mode = "custom"
+    cfg.personal.scope.classes = ["10-11"]
+    paths = build_personal_strips(
+        _exam(), _score(), _questions(), cfg, _config(tmp_path)
+    )
+    assert len(paths) == 1
+    assert paths[0].endswith("_全部班级_个人成绩单.xlsx")
+
+    cfg.personal.scope.classes = ["11"]
+    paths = build_personal_strips(
+        _exam(), _score(), _questions(), cfg, _config(tmp_path)
+    )
+    assert len(paths) == 1
+    assert paths[0].endswith("_叶_个人成绩单.xlsx")  # 高一11班 = 叶
+
+    # 规范全称与数字/反向区间可混用
+    cfg.personal.scope.classes = ["高一10班", "11-10"]
+    paths = build_personal_strips(
+        _exam(), _score(), _questions(), cfg, _config(tmp_path)
+    )
+    assert len(paths) == 1
+    assert paths[0].endswith("_全部班级_个人成绩单.xlsx")
+
+
+def test_build_custom_scope_invalid_class_spec(tmp_path):
+    import pytest
+
+    cfg = ResultsConfig()
+    cfg.personal.scope.mode = "custom"
+    cfg.personal.scope.classes = ["abc"]
+    with pytest.raises(ValueError, match="personal.scope.classes"):
         build_personal_strips(
             _exam(), _score(), _questions(), cfg, _config(tmp_path)
         )
@@ -229,14 +283,14 @@ def test_build_merged_personal_strips(tmp_path):
     ]
     # 排序：班级10 中 S1 平均分 82.5 > S2 67.5 → S1 块在前
     assert ws.cell(1, 1).value == "班级"  # S1 的表头
-    assert ws.cell(2, 3).value == "联考"  # S1 第 1 场（2026-04-20）
+    assert ws.cell(2, 3).value == "地理联考"  # S1 第 1 场（2026-04-20）
     assert ws.cell(2, 6).value == 80.0
-    assert ws.cell(3, 3).value == "限时练一"  # S1 第 2 场
+    assert ws.cell(3, 3).value == "地理限时练一"  # S1 第 2 场
     assert ws.cell(3, 6).value == 85.0
     assert ws.cell(2, 11).value == "5"  # 主观大题 26 得分（3+2）合并
     # S1 块：表头 + 2 行 + 空行(blank_rows_between=1)；S2 块从第 5 行开始
     assert ws.cell(5, 1).value == "班级"
-    assert ws.cell(6, 3).value == "联考"
+    assert ws.cell(6, 3).value == "地理联考"
     # 默认容量（37 行）下 4 个学生块（14 行）不产生分页符
     assert len(ws.row_breaks.brk) == 0
 

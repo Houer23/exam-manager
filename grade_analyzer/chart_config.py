@@ -25,6 +25,8 @@ _TOP_KEYS = {
     "min_figure_height", "group_by", "sort_metric", "show_violin",
     "show_lines", "axis", "font", "colors", "violin",
     "annotations", "separator",
+    "output_dir", "folder_semester", "folder_exam", "folder_type",
+    "type_folder_name",
 }
 _AXIS_KEYS = {
     "range_mode", "fixed_min", "fixed_max", "custom_min",
@@ -134,6 +136,14 @@ class ChartsConfig:
     enabled: bool = True
     format: str = "png"
     dpi: int = 150
+    # 输出位置：留空 = 全局 output_dir 下的 charts（保持现状）；
+    # 指定后作为统计图输出根目录
+    output_dir: str = ""
+    # 目录层级开关（外→内）：学期 -> 考试名 -> “统计图”文件夹
+    folder_semester: bool = True
+    folder_exam: bool = False
+    folder_type: bool = False
+    type_folder_name: str = "统计图"
     figure_width: float = 14.0
     row_height: float = 0.55
     min_figure_height: float = 6.0
@@ -197,6 +207,25 @@ def load_charts_config(charts_dir: str = "config/charts") -> ChartsConfig:
     cfg.format = str(raw.get("format", cfg.format))
     if cfg.format not in _FORMAT_OPTIONS:
         raise ValueError(f"{path}: format 应为 {sorted(_FORMAT_OPTIONS)}")
+    cfg.output_dir = str(raw.get("output_dir", cfg.output_dir)).strip()
+    cfg.folder_semester = _as_bool(
+        raw.get("folder_semester", cfg.folder_semester),
+        "folder_semester",
+        path,
+    )
+    cfg.folder_exam = _as_bool(
+        raw.get("folder_exam", cfg.folder_exam), "folder_exam", path
+    )
+    cfg.folder_type = _as_bool(
+        raw.get("folder_type", cfg.folder_type), "folder_type", path
+    )
+    cfg.type_folder_name = str(
+        raw.get("type_folder_name", cfg.type_folder_name)
+    ).strip()
+    if not cfg.type_folder_name:
+        raise ValueError(f"{path}: type_folder_name 不能为空")
+    if any(c in cfg.type_folder_name for c in ("/", "\\")):
+        raise ValueError(f"{path}: type_folder_name 不能包含路径分隔符")
     cfg.dpi = _as_int(raw.get("dpi", cfg.dpi), "dpi", path, 1)
     cfg.figure_width = _as_float(
         raw.get("figure_width", cfg.figure_width), "figure_width", path, 1.0

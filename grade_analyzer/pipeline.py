@@ -12,7 +12,9 @@ from .cleaning import (
     clean_score_table,
     classify_objective_types,
     collect_quality_issues,
+    drop_empty_score_records,
     filter_default_school,
+    resolve_class_spec,
 )
 from .consolidate import (
     describe_exam_list,
@@ -139,7 +141,7 @@ def parse_exams(
     for exam in exams:
         if exam.name is None:
             exam.name = resolve_exam_name(exam, config.subjects, config.subject_aliases)
-    if exam_names:
+    if exam_names is not None:
         exams = [e for e in exams if e.name in exam_names]
         if not exams:
             raise ValueError(f"未找到指定考试: {exam_names}")
@@ -185,6 +187,11 @@ def parse_exams(
         adapter_warnings = getattr(score, "attrs", {}).get("warnings", [])
         for warning in adapter_warnings:
             print(f"[提示] {exam.name}: {warning}")
+        score, questions, dropped = drop_empty_score_records(score, questions)
+        if dropped:
+            print(
+                f"[提示] {exam.name}: 已去除 {dropped} 条所有得分列均为空的记录"
+            )
         # 配置模式（binary_split=false 或 >2 顶层题型）下未覆盖题号校验
         from .question_types import resolve_question_types
 
@@ -255,7 +262,7 @@ def run_pipeline(
     charts_cfg = load_charts_config(config.charts_dir)
     results_cfg = load_results_config(config.results_config_dir)
 
-    selected, parse_names, merge_semester = _resolve_exam_selection(
+    selected, _parse_names, merge_semester = _resolve_exam_selection(
         config, exam, semester
     )
     config.exams = selected
@@ -265,7 +272,12 @@ def run_pipeline(
 
     event("启动", f"run 开始（配置 {config_path}）")
     fire_hook(ON_RUN_START, config=config)
-    parse_exams(config_path, reparse=reparse, exam_names=parse_names)
+    # 只解析本次选中场次：未指定考试时即当前学期内全部，不再顺带解析其他学期
+    parse_exams(
+        config_path,
+        reparse=reparse,
+        exam_names=[e.name for e in selected],
+    )
     event("解析", "规范表解析/复用完成")
     issues = _ensure_parsed_ready(config, selected)
     if issues:
@@ -352,8 +364,8 @@ def run_results(
     semester: str | None = None,
     exam_name: str | None = None,
     merge_strips: bool = True,
-    generate_summary: bool = True,
-    generate_strips: bool = True,
+    generate_summary: bool | None = None,
+    generate_strips: bool | None = None,
 ) -> None:
     """单独命令：生成指定学期/考试的班级汇总与个人成绩单。
 
@@ -361,11 +373,19 @@ def run_results(
     - 未指定时默认列出考试列表，并按全局 current_exam（序号列表）选择，
       为空则处理学期内全部考试；多场时个人成绩单合并为一份
       （merge_strips=False 时每场单独生成）；
-    - generate_summary / generate_strips：控制是否生成班级汇总/个人成绩单
-      （--summary-only / --strips-only）。
+    - generate_summary / generate_strips：控制是否生成班级汇总/个人成绩单；
+      None 时按 results 配置 personal.enabled / class_summary.enabled 决定，
+      True/False 表示显式覆盖（--summary-only / --strips-only / --all）。
     """
     config = load_config(config_path)
     results_cfg = load_results_config(config.results_config_dir)
+    if generate_summary is None:
+        generate_summary = results_cfg.class_summary.enabled
+    if generate_strips is None:
+        generate_strips = results_cfg.personal.enabled
+    if not generate_summary and not generate_strips:
+        print("[提示] 配置已禁用班级汇总与个人成绩单，未生成任何文件（可用 --all 强制生成）")
+        return
     exams, _parse_names, _merge_semester = _resolve_exam_selection(
         config, exam_name, semester
     )
@@ -437,6 +457,14 @@ def run_charts(
             print(f"  - {issue}")
         return
     if classes:
+        if len(exams) > 1:
+            subjects = {e.subject for e in exams}
+            if len(subjects) > 1:
+                print(
+                    "[失败] 跨场班级×考试图仅支持同一学科，当前学科为 "
+                    f"{sorted(s for s in subjects if s)}"
+                )
+                return
         class_names = _resolve_class_names(classes, config.default_grade)
         scores = [
             read_score_summary(config.parsed_dir, exam, config.parsed_format)
@@ -462,39 +490,5 @@ def run_charts(
 
 
 def _resolve_class_names(classes_arg: str, default_grade: str) -> list[str]:
-    """数字班级列表转换为规范班级名（如 高一10班，两位对齐）。
-
-    支持逗号分隔与 n-m 连续区间（含两端；n>m 时取 m..n 反向），
-    如 "10,12-14" -> 10,12,13,14；"14-12" -> 14,13,12。
-    """
-    nums: list[int] = []
-    for part in classes_arg.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if "-" in part:
-            try:
-                a_s, b_s = part.split("-", 1)
-                a, b = int(a_s), int(b_s)
-            except ValueError:
-                raise ValueError(
-                    f"班级区间应为 n-m（如 10-12），当前为 {part!r}"
-                )
-            if a <= b:
-                nums.extend(range(a, b + 1))
-            else:
-                nums.extend(range(a, b - 1, -1))
-        else:
-            try:
-                nums.append(int(part))
-            except ValueError:
-                raise ValueError(f"班级应为数字或区间（如 10,11 或 10-12），当前为 {part!r}")
-    if not nums:
-        raise ValueError("--class 未提供有效班级数字")
-    seen: set[int] = set()
-    ordered: list[int] = []
-    for n in nums:
-        if n not in seen:
-            seen.add(n)
-            ordered.append(n)
-    return [f"{default_grade}{n:02d}班" for n in ordered]
+    """数字班级列表转换为规范班级名（复用清洗层解析规则）。"""
+    return resolve_class_spec(classes_arg, default_grade)

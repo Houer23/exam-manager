@@ -2,10 +2,11 @@
 
 # ==================== 个人成绩单 ====================
 personal:
+  enabled: true            # 是否生成个人成绩单（CLI --all/--summary-only/--strips-only 可覆盖）
   scope:
     mode: teacher              # teacher=按教师分组 / all=全部班级 / custom=自定义班级列表
     teachers: [A]           # mode=teacher 时填写教师列表
-    classes: []            # mode=custom 时填写班级列表
+    classes: []            # mode=custom 时填写班级：规范全称（高二10班）或数字/区间（10、10-12、14-12）
   sort_by_score_desc: true # 学生顺序：true=总分降序；false=班级->班次升序
   single_sheet: true       # true=单 sheet 全部学生；false=每班一个 sheet
   big_score_prefix: ""     # 大题总分列前缀（show_big_questions=true 时生效）
@@ -51,6 +52,7 @@ personal:
 
 # ==================== 班级成绩汇总 ====================
 class_summary:
+  enabled: true            # 是否生成班级成绩汇总（CLI --all/--summary-only/--strips-only 可覆盖）
   group_by_teacher: true   # 按教师分文件
   per_class_sheet: true    # 每班一个 sheet
   all_classes_summary: true  # 额外生成包含所有班级的汇总表

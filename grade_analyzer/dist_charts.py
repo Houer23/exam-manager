@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 import re
 import tempfile
+from pathlib import Path
 
 # 提前设置缓存目录（避免沙箱无法写入用户主目录下的 .matplotlib）
 os.environ.setdefault(
@@ -29,6 +31,135 @@ from .chart_config import METRIC_NAMES, ChartsConfig
 from .config import ExamConfig, OutputConfig
 from .consolidate import date_range_suffix
 from .outputs import type_dir
+
+
+@dataclass
+class _ChartOutputLayout:
+    """合并后的统计图输出配置（考试覆盖 > 全局 > 默认）。"""
+
+    output_dir: str
+    folder_semester: bool
+    folder_exam: bool
+    folder_type: bool
+    type_folder_name: str
+
+
+def _merge_output_layout(
+    charts_cfg: ChartsConfig,
+    override=None,
+) -> _ChartOutputLayout:
+    """逐项合并考试级覆盖；未设置项取全局 charts 配置。
+
+    - 考试级 output_dir / type_folder_name 为空字符串时回退到默认值
+      （默认目录 output/charts、默认文件夹名 统计图），不再使用全局自定义值；
+    - 布尔开关未设置（None）时取全局值。
+    """
+
+    def text_value(
+        global_value: str,
+        override_value: str | None,
+        default_value: str,
+    ) -> str:
+        if override_value is None:
+            return global_value
+        return (
+            default_value
+            if str(override_value).strip() == ""
+            else str(override_value).strip()
+        )
+
+    def bool_value(global_value: bool, override_value: bool | None) -> bool:
+        return global_value if override_value is None else override_value
+
+    return _ChartOutputLayout(
+        output_dir=text_value(
+            charts_cfg.output_dir,
+            getattr(override, "output_dir", None),
+            "",
+        ),
+        folder_semester=bool_value(
+            charts_cfg.folder_semester,
+            getattr(override, "folder_semester", None),
+        ),
+        folder_exam=bool_value(
+            charts_cfg.folder_exam,
+            getattr(override, "folder_exam", None),
+        ),
+        folder_type=bool_value(
+            charts_cfg.folder_type,
+            getattr(override, "folder_type", None),
+        ),
+        type_folder_name=text_value(
+            charts_cfg.type_folder_name,
+            getattr(override, "type_folder_name", None),
+            "统计图",
+        ),
+    )
+
+
+def _resolve_output_layout(
+    charts_cfg: ChartsConfig,
+    exam: ExamConfig | None = None,
+) -> _ChartOutputLayout:
+    """解析单场考试的输出布局（考试 charts 覆盖 > 全局 charts）。"""
+    return _merge_output_layout(
+        charts_cfg, getattr(exam, "charts", None) if exam is not None else None
+    )
+
+
+def _resolve_series_layout(
+    charts_cfg: ChartsConfig,
+    exams: list[ExamConfig],
+) -> _ChartOutputLayout:
+    """解析跨场“班级×考试”合图的输出布局。
+
+    - 多场不同学科：不可操作，直接报错；
+    - 多场同学科：忽略各场 charts 覆盖，回归全局输出配置，
+      且只有学期子文件夹开关有效（不建考试名/统计图文件夹）；
+    - 单场：按该场考试的覆盖解析。
+    """
+    if len(exams) > 1:
+        subjects = {e.subject for e in exams}
+        if len(subjects) > 1:
+            names = [e.name or "" for e in exams]
+            raise ValueError(
+                "跨场班级×考试图仅支持同一学科，当前学科为 "
+                f"{sorted(s for s in subjects if s)}，涉及考试: {', '.join(names)}"
+            )
+        return _ChartOutputLayout(
+            output_dir=charts_cfg.output_dir,
+            folder_semester=charts_cfg.folder_semester,
+            folder_exam=False,
+            folder_type=False,
+            type_folder_name=charts_cfg.type_folder_name,
+        )
+    return _resolve_output_layout(charts_cfg, exams[0] if exams else None)
+
+
+def _chart_out_dir(
+    layout: _ChartOutputLayout,
+    output: OutputConfig,
+    semester: str | None = None,
+    exam_name: str | None = None,
+) -> Path:
+    """按配置计算统计图输出目录（外→内：学期/考试名/统计图文件夹）。
+
+    output_dir 为空时回退到默认目录：全局 output_dir/charts。
+    各层级均可用独立开关控制；多场考试合图不建考试名子文件夹。
+    """
+    base = (
+        Path(layout.output_dir)
+        if layout.output_dir
+        else type_dir(output, "charts")
+    )
+    parts: list[str] = []
+    if layout.folder_semester and semester:
+        parts.append(str(semester))
+    if layout.folder_exam and exam_name:
+        parts.append(str(exam_name))
+    if layout.folder_type:
+        parts.append(layout.type_folder_name)
+    return base.joinpath(*parts)
 
 
 def _title_date(date_str: str | None) -> str:
@@ -243,7 +374,12 @@ def build_group_chart(
             fontsize=charts_cfg.font.legend_size,
         )
 
-    out_dir = type_dir(output, "charts") / (exam.semester or "")
+    out_dir = _chart_out_dir(
+        _resolve_output_layout(charts_cfg, exam),
+        output,
+        semester=exam.semester,
+        exam_name=exam.name,
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     date_part = str(exam.date or "").replace("-", "")
     middle = f"{date_part}_" if date_part else ""
@@ -292,6 +428,7 @@ def build_exam_series_chart(
     按班级分组（组内为考试，日期升序），每组合一个半提琴；
     指标折线跨考试连续、跨班级断开；绘图方式与原统计图相同。
     """
+    layout = _resolve_series_layout(charts_cfg, exams)
     plt.rcParams["font.sans-serif"] = list(charts_cfg.font.family)
     plt.rcParams["axes.unicode_minus"] = False
 
@@ -447,7 +584,11 @@ def build_exam_series_chart(
     if charts_cfg.show_lines:
         ax.legend(loc="lower right", fontsize=charts_cfg.font.legend_size)
 
-    out_dir = type_dir(output, "charts") / (exams[0].semester or "")
+    # 单场考试合图可建考试名子文件夹；跨多场合图不建（避免归属歧义）
+    exam_name = exams[0].name if len(exams) == 1 else None
+    out_dir = _chart_out_dir(
+        layout, output, semester=exams[0].semester, exam_name=exam_name
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     suffix = date_range_suffix(exams)
     class_label = _class_label(classes)

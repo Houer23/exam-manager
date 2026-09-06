@@ -17,6 +17,11 @@ def test_defaults_when_file_missing(tmp_path):
     assert cfg.format == "png"
     assert cfg.sort_metric == "median"
     assert cfg.group_by == ["层次", "教师"]
+    assert cfg.output_dir == ""
+    assert cfg.folder_semester is True
+    assert cfg.folder_exam is False
+    assert cfg.folder_type is False
+    assert cfg.type_folder_name == "统计图"
     assert cfg.axis.range_mode == "auto"
     assert cfg.violin.inner == "quart"
     assert cfg.colors.metrics["中位数"].marker == "o"
@@ -51,6 +56,32 @@ def test_load_override(tmp_path):
     assert cfg.font.title_size == 20
     assert cfg.colors.metrics["中位数"].marker == "x"
     assert cfg.annotations.point_format == ".2f"
+
+
+def test_load_output_folder_config(tmp_path):
+    _write(
+        tmp_path,
+        "output_dir: ../../图片输出\n"
+        "folder_semester: true\n"
+        "folder_exam: true\n"
+        "folder_type: true\n"
+        "type_folder_name: 统计图表\n",
+    )
+    cfg = load_charts_config(str(tmp_path))
+    assert cfg.output_dir == "../../图片输出"
+    assert cfg.folder_semester is True
+    assert cfg.folder_exam is True
+    assert cfg.folder_type is True
+    assert cfg.type_folder_name == "统计图表"
+
+
+def test_type_folder_name_invalid(tmp_path):
+    _write(tmp_path, "folder_type: true\ntype_folder_name: ''\n")
+    with pytest.raises(ValueError, match="type_folder_name"):
+        load_charts_config(str(tmp_path))
+    _write(tmp_path, "type_folder_name: 'a/b'\n")
+    with pytest.raises(ValueError, match="type_folder_name"):
+        load_charts_config(str(tmp_path))
 
 
 def test_invalid_sort_metric(tmp_path):
