@@ -180,6 +180,28 @@ def test_list_exams_semester_filter(tmp_path):
     assert list(df["学期"]) == ["高二第一学期"]
 
 
+def test_list_exams_defaults_to_current_semester(tmp_path):
+    exams_dir = tmp_path / "exams"
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _write_exam(
+        exams_dir, "高一第二学期", "周测",
+        name="高一下地理周测", folder=str(raw_dir),
+    )
+    _write_exam(
+        exams_dir, "高二第一学期", "周测",
+        name="高二上地理周测", folder=str(raw_dir),
+    )
+    cfg_path = str(
+        _write_global(
+            tmp_path, exams_dir, current_semester="高二第一学期"
+        )
+    )
+    df = list_exams(cfg_path)
+    assert list(df["考试名称"]) == ["高二上地理周测"]
+    assert list(df["学期"]) == ["高二第一学期"]
+
+
 def test_get_config_value(tmp_path, capsys):
     exams_dir = tmp_path / "exams"
     exams_dir.mkdir()

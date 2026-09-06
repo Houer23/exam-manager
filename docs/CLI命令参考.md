@@ -189,7 +189,7 @@ python -m grade_analyzer.cli exam list [--config 路径] [--semester 学期] [--
 | 参数 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `--config` | 路径 | `config/config.yaml` | 配置文件路径 |
-| `--semester` | 文本 | 全部 | 限定学期 |
+| `--semester` | 文本 | 当前学期 | 限定学期（缺省=当前学期，与 run/results 序号口径一致） |
 | `--checkable` | 开关 | 关 | 只列出可执行 check 的场次（原始文件存在） |
 | `--results-ready` | 开关 | 关 | 只列出可生成成绩单的场次（规范表有效） |
 
@@ -330,6 +330,7 @@ python sync_templates.py
 ### 5.1 场次序号规则（`--exam`、`current_exam`）
 
 - `1-n`：按日期升序的场次序号（与 `exam list` 一致）；
+- `exam list` 未指定 `--semester` 时默认仅列出当前学期（`current_semester`）；
 - `0`：第一场；负数：倒数第 |k| 场；
 - 正数过大取最后一场，负数绝对值过大取第一场；
 - 逗号分隔可多选，如 `1,3`；`current_exam` 留空=处理全部。
@@ -367,4 +368,3 @@ python sync_templates.py
 | `总分越界（满分 100）` | 原始数据总分异常 | 检查原始文件；确认 `full_score` 配置 |
 | `题型配置未覆盖题号 [..]` | `binary_split=false` 下配置未覆盖全部题号 | 补全 `question_types` 或开启 `binary_split` |
 | `文件可能被占用`（写入失败提示） | Excel 文件被打开 | 关闭占用程序后重试 |
-

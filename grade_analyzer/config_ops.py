@@ -469,6 +469,7 @@ def list_exams(
 ) -> pd.DataFrame:
     """列出考试条目及 check/results 可用性状态。
 
+    - semester 未指定时默认取全局 current_semester（与 run/results --exam 序号口径一致）；
     - 检查列：原始成绩文件是否存在（可执行 check 的前提）；
     - 成绩单列：规范表是否已生成且有效（可执行 results 的前提）；
     - checkable=True 时只保留原始文件存在的场次；
@@ -479,6 +480,8 @@ def list_exams(
     config = load_config(config_path)
     rows = []
     exams = list(config.exams)
+    if not semester:
+        semester = config.current_semester
     if semester:
         exams = [e for e in exams if e.semester == semester]
     for idx, exam in enumerate(sort_exams_by_date(exams), 1):

@@ -178,7 +178,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_p = exam_sub.add_parser("list", help="列出考试条目及 check/results 可用性")
     add_config_arg(list_p)
-    list_p.add_argument("--semester", default=None, help="限定学期")
+    list_p.add_argument(
+        "--semester", default=None, help="限定学期（缺省=当前学期）"
+    )
     list_p.add_argument(
         "--checkable", action="store_true", help="只列出可执行 check 的场次（原始文件存在）"
     )
