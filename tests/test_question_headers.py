@@ -22,6 +22,13 @@ def test_classify_dash():
     assert classify_question_header("28-1") == ("28-1", "主观")
 
 
+def test_classify_chinese_suffix():
+    # 数字 + 汉字后缀（如平台导出的 23作文）按纯数字题号处理，默认归入主观题
+    assert classify_question_header("23作文") == ("23", "主观")
+    assert classify_question_header("21写作") == ("21", "主观")
+    assert classify_question_type("23作文") == ("23", "主观")
+
+
 def test_classify_unknown():
     assert classify_question_header("abc") is None
     assert classify_question_header("") is None

@@ -23,6 +23,8 @@ _QUESTION_HEADER_PATTERNS = [
 
 # 主观分组题号（一列对应多个小题/圈码）：17(1)(2)、19(1)(2)(3)①、19(3)②(4)
 _GROUPED_SUB_RE = re.compile(r"^(\d+)(?:[（(]\d+[）)]|[\u2460-\u2473])+$")
+# 数字 + 汉字后缀（平台在题号后附题型名/说明）：23作文
+_CHINESE_SUFFIX_RE = re.compile(r"^(\d+)[\u4e00-\u9fff]+$")
 _FULL_TO_HALF_PAREN = str.maketrans({"（": "(", "）": ")"})
 
 
@@ -33,12 +35,16 @@ def classify_question_header(header: str) -> tuple[str, str] | None:
     - 客观题 "N"；
     - 主观小题（单个小题）"N-M"（全角/半角括号、短横线统一为短横线）；
     - 主观分组（一列含多个小题号/圈码）保留括号形式，如 "17(1)(2)"、"19(1)(2)(3)①"。
+    - 数字 + 汉字后缀（如 "23作文"）按纯数字题号处理，默认归入主观题。
     """
     text = str(header).strip()
     if not text:
         return None
     if re.fullmatch(r"\d+", text):
         return text, "客观"
+    m = _CHINESE_SUFFIX_RE.fullmatch(text)
+    if m:
+        return m.group(1), "主观"
     m = _QUESTION_HEADER_PATTERNS[1].fullmatch(text)  # 单个小题 26(1) / 26（1）
     if m:
         return f"{m.group(1)}-{m.group(2)}", "主观"
